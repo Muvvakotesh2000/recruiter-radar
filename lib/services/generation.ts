@@ -154,7 +154,7 @@ export async function runGeneration(
 
     if (allResults.length > 0 && aiProvider.extractContacts) {
       extractedResult = await aiProvider.extractContacts(input, allResults, hunterData);
-    } else if (hunterData && hunterData.emails.length > 0) {
+    } else if (hunterData && hunterData.emails.length > 0 && aiProvider.extractContacts) {
       // No search results but Hunter has data — extract from Hunter alone
       console.log("[Generation] No search results — extracting from Hunter.io data only");
       extractedResult = await aiProvider.extractContacts(input, [], hunterData);
