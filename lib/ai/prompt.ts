@@ -12,35 +12,33 @@ export function buildQueryGenerationPrompt(
 ): string {
   const { company_name, job_title, location } = input;
 
-  return `You are a recruiting research expert specializing in finding recruiter and hiring manager contact information.
-
-Generate highly targeted search queries to find recruiter and talent acquisition contacts at the following company.
+  return `You are a recruiting research expert. Generate targeted Google search queries to find REAL recruiter contacts currently working at "${company_name}".
 
 INPUT:
 - Company: ${company_name}
 - Role: ${job_title}
 - Location: ${location}
 
-QUERY STRATEGY:
-1. LinkedIn profile searches: find recruiters and TA partners at the company
-2. Email discovery searches: find email patterns or direct contacts via Apollo, RocketReach, Hunter
-3. Company careers page searches: often lists TA team contacts
-4. Name + company + email searches: find direct contact details
+QUERY RULES:
+- Every query MUST contain "${company_name}" as a quoted phrase to ensure company-specific results
+- Do NOT write queries that could return recruiters from other companies or generic location-based lists
+- Mix LinkedIn profile searches with email/contact database searches
+- Use Google operators: site:, "quotes", OR
 
-REQUIREMENTS:
-- Write 6 precise search queries
-- Mix LinkedIn site-search queries with general web queries
-- Use Google-dork style operators: site:, "quotes", OR
-- Focus on finding real people who recruit for this role/company
-- Include at least 2 queries targeting email addresses or patterns
-- Vary query angles to maximize discovery
+QUERY TYPES TO INCLUDE:
+1. LinkedIn recruiter at this specific company: site:linkedin.com/in "${company_name}" "recruiter" OR "talent acquisition"
+2. LinkedIn TA partner for this role: site:linkedin.com/in "${company_name}" "${job_title}" hiring
+3. Email pattern discovery: "${company_name}" email format recruiter site:hunter.io OR site:apollo.io
+4. Direct contact search: "${company_name}" recruiter email "@" site:apollo.io OR site:rocketreach.co
+5. Company HR team page: "${company_name}" "talent acquisition team" OR "recruiting team" contacts
+6. LinkedIn search with current employer: site:linkedin.com "${company_name}" "currently" recruiter OR "talent partner"
 
-Return ONLY valid JSON, no markdown:
+Write exactly 6 queries. Return ONLY valid JSON, no markdown:
 {
   "queries": [
     {
       "query": "exact search string to execute",
-      "purpose": "brief description of what this query targets",
+      "purpose": "brief description",
       "platform": "google" | "linkedin"
     }
   ]
@@ -68,9 +66,7 @@ Snippet: ${r.snippet}${r.content ? `\nContent: ${r.content.slice(0, 600)}` : ""}
     )
     .join("\n\n---\n\n");
 
-  return `You are a data extraction expert specializing in recruiter contact discovery.
-
-Extract recruiter and hiring manager contacts from the following real web search results.
+  return `You are a strict data extraction expert. Your job is to find REAL recruiter contacts for "${company_name}" from search results.
 
 JOB CONTEXT:
 - Company: ${company_name}
@@ -81,23 +77,36 @@ JOB CONTEXT:
 SEARCH RESULTS (real web data):
 ${formattedResults}
 
-EXTRACTION RULES:
-1. Extract ONLY information explicitly present in the search results above
-2. For LinkedIn URLs: only include if a real linkedin.com/in/ URL appears in the results
-3. For emails:
-   - "verified": email appears directly in a result snippet
-   - "estimated": email was computed using a confirmed company email pattern
-   - "unknown": email cannot be determined from these results
-4. Never fabricate names, emails, or LinkedIn URLs not present in the data above
-5. If a name appears but their email is unknown, still include them with email: null
-6. Confidence levels:
-   - High: person is explicitly identified as recruiter/TA/hiring manager at this company
-   - Medium: person works at company in a relevant role but not explicitly confirmed as recruiter
-   - Low: tenuous connection to this role or company
-7. The outreach_message must be short (3-5 sentences), professional, personalized to the specific role and company
-8. Extract 2-5 contacts maximum; quality over quantity
-9. If the results contain an email pattern (e.g. {first}.{last}@company.com), use it to estimate emails for identified people
-10. source: describe exactly which search result contained this person's information
+STRICT EXTRACTION RULES — follow these exactly:
+
+INCLUSION CRITERIA (ALL must be true to include a person):
+1. Their name must appear explicitly in one of the search results above
+2. The search result must explicitly mention "${company_name}" in connection to this person — not just a city or region
+3. Their role must be recruiter, talent acquisition, HR, hiring manager, or people operations at "${company_name}"
+4. Do NOT include someone just because they are a recruiter in ${location} — they MUST be linked to "${company_name}" specifically
+
+REJECTION RULES (exclude immediately if any apply):
+- Person is a recruiter at a different company, even if in ${location}
+- Person's connection to "${company_name}" is inferred — not stated in the result
+- Name appears on a generic "recruiters in ${location}" list without company confirmation
+- The result is a job board listing with no named contact
+
+DATA RULES:
+- LinkedIn URLs: only include real linkedin.com/in/[username] URLs from the results — never guess or construct them
+- Emails marked "verified": email text appears directly in a snippet
+- Emails marked "estimated": derived from a confirmed company email pattern found in results
+- Emails marked "unknown": cannot be confirmed — set email to null
+- Never fabricate or guess emails, names, or URLs
+
+CONFIDENCE LEVELS:
+- High: snippet explicitly names this person as a recruiter/TA at "${company_name}"
+- Medium: snippet shows they work at "${company_name}" in a people/HR role
+- Low: weak or indirect connection — ONLY include if no better leads exist
+
+OUTPUT RULES:
+- Return 0 recruiters if no valid contacts found — an empty array is better than fabricated data
+- Maximum 5 contacts; prefer quality over quantity
+- If results contain an email pattern (e.g. first.last@company.com), use it to estimate emails for confirmed people only
 
 Return ONLY valid JSON, no markdown or explanation:
 {
@@ -106,7 +115,7 @@ Return ONLY valid JSON, no markdown or explanation:
   "job_url": "${job_url}",
   "job_location": "${location}",
   "email_pattern": "detected pattern or null",
-  "hiring_team_notes": "observations about the TA team or hiring structure from the results, or null",
+  "hiring_team_notes": "observations about the TA team structure from the results, or null",
   "recruiters": [
     {
       "full_name": "string",
@@ -115,7 +124,7 @@ Return ONLY valid JSON, no markdown or explanation:
       "email": "string or null",
       "email_type": "verified|estimated|unknown",
       "confidence_level": "High|Medium|Low",
-      "source": "which result this came from",
+      "source": "exact result number and snippet text that confirmed this person works at ${company_name}",
       "outreach_message": "personalized 3-5 sentence outreach message"
     }
   ]

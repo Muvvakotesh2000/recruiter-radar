@@ -30,7 +30,7 @@ interface GenerationResult {
 const MAX_QUERIES = 5;
 
 /** Max results per query */
-const RESULTS_PER_QUERY = 7;
+const RESULTS_PER_QUERY = 10;
 
 export async function runGeneration(
   options: GenerationOptions
@@ -142,12 +142,19 @@ export async function runGeneration(
     if (allResults.length > 0 && aiProvider.extractContacts) {
       extractedResult = await aiProvider.extractContacts(input, allResults);
     } else {
-      // No search results or provider doesn't support extraction —
-      // fall back to single-shot generation
+      // No search results — return empty rather than hallucinating contacts
       console.warn(
-        "[Generation] No search results available — falling back to single-shot AI generation"
+        "[Generation] No search results available — returning empty leads to avoid fabrication"
       );
-      extractedResult = await aiProvider.generateRecruiterLeads(input);
+      extractedResult = {
+        company_name: input.company_name,
+        job_title: input.job_title,
+        job_url: input.job_url,
+        job_location: input.location,
+        email_pattern: null,
+        hiring_team_notes: "No search results were returned. Try regenerating or check the company name.",
+        recruiters: [],
+      };
     }
 
     rawResponse = JSON.stringify({
@@ -160,8 +167,13 @@ export async function runGeneration(
     // Delete any existing leads for this job (supports regeneration)
     await db.from("recruiter_leads").delete().eq("job_id", jobId);
 
-    if (extractedResult.recruiters.length > 0) {
-      const leadsToInsert = extractedResult.recruiters.map((r: any) => ({
+    // Only save High and Medium confidence leads — Low confidence are unreliable
+    const reliableLeads = extractedResult.recruiters.filter(
+      (r: any) => r.confidence_level === "High" || r.confidence_level === "Medium"
+    );
+
+    if (reliableLeads.length > 0) {
+      const leadsToInsert = reliableLeads.map((r: any) => ({
         job_id: jobId,
         user_id: userId,
         full_name: r.full_name,
@@ -205,11 +217,11 @@ export async function runGeneration(
       .eq("id", generationRunId);
 
     console.log(
-      `[Generation] Done — ${extractedResult.recruiters.length} leads saved`
+      `[Generation] Done — ${reliableLeads.length} reliable leads saved (${extractedResult.recruiters.length} total extracted)`
     );
 
     return {
-      recruiterCount: extractedResult.recruiters.length,
+      recruiterCount: reliableLeads.length,
       generationRunId,
       queriesUsed,
     };
