@@ -6,6 +6,27 @@
 import { createClient } from "@/lib/supabase/server";
 import type { Job, JobWithLeads } from "@/types/database";
 
+type NewJobInsert = {
+  user_id: string;
+  company_name: string;
+  job_title: string;
+  job_url: string;
+  location: string;
+  status: string;
+  ai_provider: string;
+};
+
+type JobStatusRow = {
+  id: string;
+  status: string;
+};
+
+type LeadMetricRow = {
+  id: string;
+  confidence_level: string | null;
+  email: string | null;
+};
+
 export async function getUserJobs(userId: string): Promise<Job[]> {
   const supabase = await createClient();
 
@@ -16,7 +37,7 @@ export async function getUserJobs(userId: string): Promise<Job[]> {
     .order("created_at", { ascending: false });
 
   if (error) throw new Error(`Failed to fetch jobs: ${error.message}`);
-  return data ?? [];
+  return (data ?? []) as unknown as Job[];
 }
 
 export async function getJobWithLeads(
@@ -33,11 +54,11 @@ export async function getJobWithLeads(
     .single();
 
   if (error) {
-    if (error.code === "PGRST116") return null; // not found
+    if (error.code === "PGRST116") return null;
     throw new Error(`Failed to fetch job: ${error.message}`);
   }
 
-  return data as JobWithLeads;
+  return data as unknown as JobWithLeads;
 }
 
 export async function createJob(params: {
@@ -49,22 +70,29 @@ export async function createJob(params: {
 }): Promise<Job> {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  const payload: NewJobInsert = {
+    user_id: params.userId,
+    company_name: params.company_name,
+    job_title: params.job_title,
+    job_url: params.job_url,
+    location: params.location,
+    status: "pending",
+    ai_provider: "openai",
+  };
+
+  const query = supabase
     .from("jobs")
-    .insert({
-      user_id: params.userId,
-      company_name: params.company_name,
-      job_title: params.job_title,
-      job_url: params.job_url,
-      location: params.location,
-      status: "pending",
-      ai_provider: "openai",
-    })
+    .insert(payload as never)
     .select()
     .single();
 
+  const { data, error } = await (query as unknown as Promise<{
+    data: Job | null;
+    error: { message: string } | null;
+  }>);
+
   if (error || !data) {
-    throw new Error(`Failed to create job: ${error?.message}`);
+    throw new Error(`Failed to create job: ${error?.message ?? "Unknown error"}`);
   }
 
   return data;
@@ -118,8 +146,8 @@ export async function getDashboardMetrics(userId: string) {
       .eq("user_id", userId),
   ]);
 
-  const jobs = jobsResult.data ?? [];
-  const leads = leadsResult.data ?? [];
+  const jobs = (jobsResult.data ?? []) as unknown as JobStatusRow[];
+  const leads = (leadsResult.data ?? []) as unknown as LeadMetricRow[];
 
   return {
     totalJobs: jobs.length,
