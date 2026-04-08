@@ -12,6 +12,7 @@ import { getAIProvider } from "@/lib/ai/factory";
 import { getSearchProvider } from "@/lib/search/factory";
 import { buildRecruiterPrompt, buildSystemPrompt } from "@/lib/ai/prompt";
 import { hunterDomainSearch, extractCompanyDomain } from "@/lib/services/hunter";
+import { bestEmailFromPattern, generateCandidates, splitName } from "@/lib/utils/email-patterns";
 import type { RecruiterSearchInput, SearchQueriesResponse } from "@/types/ai";
 import type { SearchResult } from "@/lib/search/base";
 import type { HunterResult } from "@/lib/services/hunter";
@@ -29,7 +30,7 @@ interface GenerationResult {
 }
 
 /** Max queries to execute in parallel. Keeps latency under control. */
-const MAX_QUERIES = 5;
+const MAX_QUERIES = 6;
 
 /** Max results per query */
 const RESULTS_PER_QUERY = 10;
@@ -179,6 +180,40 @@ export async function runGeneration(
       result_count: allResults.length,
       extracted: extractedResult,
     });
+
+    // ── Phase 3.5: Fill missing emails via pattern inference ─────────────────
+    // Priority: Hunter pattern > AI-detected pattern > first.last default
+    const detectedPattern =
+      hunterData?.pattern ||           // Hunter.io confirmed pattern
+      extractedResult.email_pattern;   // AI-detected pattern from search results
+
+    extractedResult.recruiters = extractedResult.recruiters.map((r: any) => {
+      if (r.email) return r; // already has an email, keep it
+
+      const { first, last } = splitName(r.full_name ?? "");
+      if (!first || !last) return r; // can't split name, skip
+
+      if (detectedPattern) {
+        // Apply the confirmed pattern
+        const estimated = bestEmailFromPattern(detectedPattern, r.full_name, companyDomain);
+        if (estimated) {
+          return { ...r, email: estimated, email_type: "estimated" };
+        }
+      }
+
+      // No pattern found — use first.last as a reasonable default for tech companies
+      const candidates = generateCandidates(r.full_name, companyDomain);
+      if (candidates.length > 0) {
+        return { ...r, email: candidates[0], email_type: "estimated" };
+      }
+
+      return r;
+    });
+
+    // Propagate the detected pattern to the response if not already set
+    if (detectedPattern && !extractedResult.email_pattern) {
+      extractedResult = { ...extractedResult, email_pattern: `${detectedPattern}@${companyDomain}` };
+    }
 
     // ── Phase 4: Persist to database ─────────────────────────────────────────
     // Delete any existing leads for this job (supports regeneration)

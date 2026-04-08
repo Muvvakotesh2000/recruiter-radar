@@ -41,10 +41,12 @@ QUERY RULES:
 QUERY TYPES TO INCLUDE (write exactly 6):
 1. Location-anchored LinkedIn: site:linkedin.com/in "${company_name}" "recruiter" OR "talent acquisition" ${primaryLocation}
 2. ${hasMultipleLocations ? `Multi-location LinkedIn: site:linkedin.com/in "${company_name}" recruiter (${locationList})` : `Role-specific LinkedIn: site:linkedin.com/in "${company_name}" "${job_title}" recruiter`}
-3. Email pattern discovery: "${company_name}" email format site:hunter.io OR site:apollo.io
-4. Location + company recruiter email: "${company_name}" recruiter ${primaryLocation} site:apollo.io OR site:rocketreach.co
-5. Company domain email pattern: "${company_name}" "@${companySlug}.com" recruiter hiring
-6. Company careers/TA team page: "${company_name}" "talent acquisition" OR "recruiting team" ${primaryLocation} contacts
+3. Email pattern discovery: "@${companySlug}.com" recruiter OR "talent acquisition" — finds pages exposing real email addresses
+4. Apollo/RocketReach contact: site:apollo.io OR site:rocketreach.co "${company_name}" recruiter email
+5. Company domain email evidence: "${company_name}" recruiter "email" "@${companySlug}.com" site:linkedin.com OR site:github.com
+6. Company careers/TA team: "${company_name}" "talent acquisition" OR "recruiting team" ${primaryLocation} email contact
+
+IMPORTANT: Queries 3, 4, and 5 are specifically designed to uncover real email addresses or confirm the company email pattern. Include all of them.
 
 Return ONLY valid JSON, no markdown:
 {
@@ -165,13 +167,20 @@ CONFIDENCE LEVELS:
 - Medium: snippet shows they work at "${company_name}" in a people/HR role
 - Low: weak or indirect connection — ONLY include if no better leads exist
 
-EMAIL ESTIMATION (critical — follow this order):
-1. If Hunter.io data above contains a known email for this person → use it as email_type: "verified"
-2. If Hunter.io provides a confirmed email pattern → apply it to every identified person's name → email_type: "estimated"
-3. If no Hunter pattern but search results show an email pattern → apply it → email_type: "estimated"
-4. If none of the above → set email: null, email_type: "unknown"
-- Always apply the pattern to EVERY identified recruiter, not just those with known emails
-- Common patterns: {first}.{last}@domain, {f}{last}@domain, {first}{l}@domain, {first}@domain
+EMAIL DETECTION (scan every result carefully):
+- Look for ANY occurrence of "@" followed by a domain that matches "${company_name}" in snippets — even partial like "j.smith@"
+- Look for phrases like "email us at", "contact:", "reach me at", "my email" followed by an address
+- Look for email format hints like "our emails follow first.last@" or "firstname@company"
+- If you find even ONE company email in the results, you can infer the pattern for everyone
+
+EMAIL ESTIMATION (apply in this order):
+1. Hunter.io verified email for this exact person → email_type: "verified"
+2. Hunter.io confirmed pattern applied to name → email_type: "estimated"
+3. Email found directly in a search result snippet → email_type: "verified"
+4. Pattern inferred from any email seen in results → apply to all names → email_type: "estimated"
+5. No evidence at all → set email: null, email_type: "unknown" (backend will apply first.last default)
+
+CRITICAL: Set email_pattern in your response if you detect ANY pattern — even from a single email seen in results. Format it as "{first}.{last}" or "{f}{last}" etc. This is used to fill emails for all contacts.
 
 OUTPUT RULES:
 - Return 0 recruiters if no valid contacts found — an empty array is better than fabricated data
