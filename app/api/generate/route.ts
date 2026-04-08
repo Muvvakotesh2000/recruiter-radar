@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { createClient } from "@/lib/supabase/server";
 import { createJob } from "@/lib/services/jobs";
 import { runGeneration } from "@/lib/services/generation";
 import { JobSubmitSchema } from "@/lib/validations/job";
 import { ZodError } from "zod";
+
+// Allow up to 5 minutes on Vercel Pro (background generation)
+export const maxDuration = 300;
+
+// Rate limit: max jobs per user per hour
+const RATE_LIMIT_MAX = 10;
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
 type JobRow = {
   id: string;
@@ -28,9 +36,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── Rate limiting: max 10 jobs per user per hour ──────────────────────────
+    const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
+    const { count: recentJobCount } = await supabase
+      .from("jobs")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .gte("created_at", windowStart);
+
+    if ((recentJobCount ?? 0) >= RATE_LIMIT_MAX) {
+      return NextResponse.json(
+        { error: `Rate limit reached. You can submit up to ${RATE_LIMIT_MAX} jobs per hour.`, success: false },
+        { status: 429 }
+      );
+    }
+
+    // ── Concurrency control: max 1 processing job per user ────────────────────
+    const { count: activeJobCount } = await supabase
+      .from("jobs")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .eq("status", "processing");
+
+    if ((activeJobCount ?? 0) >= 1) {
+      return NextResponse.json(
+        { error: "A search is already in progress. Please wait for it to finish.", success: false },
+        { status: 409 }
+      );
+    }
+
     const body = await request.json();
     const input = JobSubmitSchema.parse(body);
 
+    // ── Create job record immediately ─────────────────────────────────────────
     const job = await createJob({
       userId: user.id,
       company_name: input.company_name,
@@ -39,35 +77,32 @@ export async function POST(request: NextRequest) {
       location: input.location,
     });
 
-    const result = await runGeneration({
-      userId: user.id,
-      jobId: job.id,
-      input: {
-        company_name: input.company_name,
-        job_title: input.job_title,
-        job_url: input.job_url ?? "",
-        location: input.location ?? "",
-      },
-    });
-
-    return NextResponse.json(
-      {
-        data: {
-          job_id: job.id,
-          recruiter_count: result.recruiterCount,
+    // ── Run generation in background — don't block the response ──────────────
+    waitUntil(
+      runGeneration({
+        userId: user.id,
+        jobId: job.id,
+        input: {
+          company_name: input.company_name,
+          job_title: input.job_title,
+          job_url: input.job_url ?? "",
+          location: input.location ?? "",
         },
-        success: true,
-        error: null,
-      },
-      { status: 200 }
+      }).catch((err) => {
+        console.error(`[API /generate] Background generation failed for job ${job.id}:`, err);
+      })
+    );
+
+    // Return job_id immediately — frontend navigates and listens via Realtime
+    return NextResponse.json(
+      { data: { job_id: job.id }, success: true, error: null },
+      { status: 202 }
     );
   } catch (error) {
     if (error instanceof ZodError) {
       return NextResponse.json(
         {
-          error:
-            "Validation failed: " +
-            error.errors.map((e) => e.message).join(", "),
+          error: "Validation failed: " + error.errors.map((e) => e.message).join(", "),
           success: false,
         },
         { status: 400 }
@@ -75,15 +110,8 @@ export async function POST(request: NextRequest) {
     }
 
     console.error("[API /generate] Error:", error);
-    const message =
-      error instanceof Error
-        ? error.message
-        : "An unexpected error occurred.";
-
-    return NextResponse.json(
-      { error: message, success: false },
-      { status: 500 }
-    );
+    const message = error instanceof Error ? error.message : "An unexpected error occurred.";
+    return NextResponse.json({ error: message, success: false }, { status: 500 });
   }
 }
 
@@ -199,24 +227,25 @@ export async function PATCH(request: NextRequest) {
 
     const job = data as JobRow;
 
-    const result = await runGeneration({
-      userId: user.id,
-      jobId: job.id,
-      input: {
-        company_name: job.company_name,
-        job_title: job.job_title,
-        job_url: job.job_url ?? "",
-        location: job.location ?? "",
-      },
-    });
+    // Run regeneration in background
+    waitUntil(
+      runGeneration({
+        userId: user.id,
+        jobId: job.id,
+        input: {
+          company_name: job.company_name,
+          job_title: job.job_title,
+          job_url: job.job_url ?? "",
+          location: job.location ?? "",
+        },
+      }).catch((err) => {
+        console.error(`[API /generate PATCH] Background regeneration failed for job ${job.id}:`, err);
+      })
+    );
 
     return NextResponse.json(
-      {
-        data: { recruiter_count: result.recruiterCount },
-        success: true,
-        error: null,
-      },
-      { status: 200 }
+      { data: { job_id: job.id }, success: true, error: null },
+      { status: 202 }
     );
   } catch (error) {
     const message =

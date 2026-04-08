@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -57,6 +58,36 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
   const [showQueries, setShowQueries] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
 
+  // Live status updates via Supabase Realtime
+  useEffect(() => {
+    // Only subscribe if the job is still in progress
+    if (job.status !== "pending" && job.status !== "processing") return;
+
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`job-status-${job.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "jobs",
+          filter: `id=eq.${job.id}`,
+        },
+        (payload) => {
+          const newStatus = (payload.new as { status: string }).status;
+          if (newStatus === "completed" || newStatus === "failed") {
+            router.refresh();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [job.id, job.status, router]);
+
   const status = getStatusColor(job.status);
   const leads = job.recruiter_leads ?? [];
   const emailLeads = leads.filter((l) => l.email);
@@ -71,10 +102,10 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
-      toast.success("Leads regenerated!", {
-        description: `Found ${data.data.recruiter_count} recruiter${data.data.recruiter_count !== 1 ? "s" : ""}`,
+      toast.success("Regenerating leads...", {
+        description: "Searching in the background. Results will appear automatically.",
       });
-      router.refresh();
+      router.refresh(); // refresh to show "processing" status
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Regeneration failed";
       toast.error("Failed to regenerate", { description: msg });

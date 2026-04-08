@@ -58,8 +58,8 @@ export function EditJobModal({ open, onOpenChange, job, onSuccess }: EditJobModa
       const result = await res.json();
       if (!result.success) throw new Error(result.error);
 
-      toast.success("Job updated & leads regenerated!", {
-        description: `Found ${result.data.recruiter_count} recruiter${result.data.recruiter_count !== 1 ? "s" : ""}`,
+      toast.success("Job updated!", {
+        description: "Searching for recruiter leads in the background. Results will appear automatically.",
       });
       onOpenChange(false);
       onSuccess();

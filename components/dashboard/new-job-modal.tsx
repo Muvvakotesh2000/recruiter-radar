@@ -26,13 +26,9 @@ interface NewJobModalProps {
 }
 
 const GENERATING_STEPS = [
-  "Generating targeted search queries...",
-  "Searching LinkedIn for recruiter profiles...",
-  "Querying Apollo & RocketReach for contact info...",
-  "Searching for company email patterns...",
-  "Extracting recruiter contacts from results...",
-  "Building personalized outreach messages...",
-  "Saving results to your dashboard...",
+  "Creating your search job...",
+  "Preparing AI search queries...",
+  "Starting background search...",
 ];
 
 export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps) {
@@ -57,7 +53,7 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
     const interval = setInterval(() => {
       msgIdx = (msgIdx + 1) % GENERATING_STEPS.length;
       setGeneratingText(GENERATING_STEPS[msgIdx]);
-    }, 2800);
+    }, 800);
 
     try {
       const response = await fetch("/api/generate", {
@@ -72,8 +68,8 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
         throw new Error(result.error || "Generation failed");
       }
 
-      toast.success("Recruiter leads found!", {
-        description: `Found ${result.data.recruiter_count} recruiter${result.data.recruiter_count !== 1 ? "s" : ""} for this role.`,
+      toast.success("Search started!", {
+        description: "Finding recruiters in the background. Results will appear automatically.",
       });
 
       reset();
