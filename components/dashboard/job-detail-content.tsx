@@ -36,6 +36,7 @@ import {
   getStatusColor,
   copyToClipboard,
 } from "@/lib/utils";
+import { extractCompanyDomain } from "@/lib/services/hunter";
 
 interface LastRunInfo {
   id: string;
@@ -59,12 +60,34 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
   const [showQueries, setShowQueries] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
 
-  // Live status updates via Supabase Realtime
+  // Live status updates: poll Supabase DB directly every 4s + Realtime for instant updates
   useEffect(() => {
-    // Only subscribe if the job is still in progress
     if (job.status !== "pending" && job.status !== "processing") return;
 
     const supabase = createClient();
+    let done = false;
+
+    function onComplete() {
+      if (done) return;
+      done = true;
+      router.refresh();
+    }
+
+    // Polling fallback: query the DB directly — only calls router.refresh() once when done
+    const pollInterval = setInterval(async () => {
+      const { data } = await supabase
+        .from("jobs")
+        .select("status")
+        .eq("id", job.id)
+        .single();
+      const polledStatus = (data as { status: string } | null)?.status;
+      if (polledStatus === "completed" || polledStatus === "failed") {
+        clearInterval(pollInterval);
+        onComplete();
+      }
+    }, 4000);
+
+    // Realtime for instant delivery (fires before next poll cycle)
     const channel = supabase
       .channel(`job-status-${job.id}`)
       .on(
@@ -78,13 +101,16 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
         (payload) => {
           const newStatus = (payload.new as { status: string }).status;
           if (newStatus === "completed" || newStatus === "failed") {
-            router.refresh();
+            clearInterval(pollInterval);
+            onComplete();
           }
         }
       )
       .subscribe();
 
     return () => {
+      done = true;
+      clearInterval(pollInterval);
       supabase.removeChannel(channel);
     };
   }, [job.id, job.status, router]);
@@ -92,6 +118,7 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
   const status = getStatusColor(job.status);
   const leads = job.recruiter_leads ?? [];
   const emailLeads = leads.filter((l) => l.email);
+  const companyDomain = extractCompanyDomain(job.job_url, job.company_name);
 
   async function handleRegenerate() {
     setRegenerating(true);
@@ -381,7 +408,7 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {leads.map((lead, index) => (
-                <RecruiterCard key={lead.id} lead={lead} index={index} />
+                <RecruiterCard key={lead.id} lead={lead} index={index} companyDomain={companyDomain} />
               ))}
             </div>
           )}

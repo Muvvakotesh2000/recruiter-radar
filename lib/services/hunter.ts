@@ -21,12 +21,26 @@ export interface HunterResult {
 
 // Known ATS / job board domains — extract company domain from company name instead
 const ATS_DOMAINS = new Set([
-  "greenhouse.io", "lever.co", "linkedin.com", "workday.com",
-  "myworkdayjobs.com", "smartrecruiters.com", "jobvite.com",
-  "icims.com", "taleo.net", "successfactors.com", "brassring.com",
-  "bamboohr.com", "ashbyhq.com", "rippling.com", "recruitee.com",
-  "workable.com", "jazz.co", "applytojob.com", "hiringthing.com",
-  "indeed.com", "glassdoor.com", "ziprecruiter.com", "monster.com",
+  // Generic job boards
+  "linkedin.com", "indeed.com", "glassdoor.com", "ziprecruiter.com",
+  "monster.com", "careerbuilder.com", "dice.com", "simplyhired.com",
+  // Modern ATS
+  "greenhouse.io", "lever.co", "ashbyhq.com", "rippling.com",
+  "recruitee.com", "workable.com", "jazz.co", "applytojob.com",
+  "hiringthing.com", "breezy.hr", "pinpoint.com", "dover.com",
+  "occupop.com", "teamtailor.com", "recruitcrm.io",
+  // Enterprise ATS
+  "workday.com", "myworkdayjobs.com", "wd1.myworkdayjobs.com",
+  "smartrecruiters.com", "jobvite.com", "icims.com",
+  "taleo.net", "successfactors.com", "sapsuccessfactors.com",
+  "brassring.com", "bamboohr.com", "oraclecloud.com",
+  "fa.us2.oraclecloud.com", "ultipro.com", "adp.com",
+  "silkroad.com", "cornerstoneondemand.com", "kenexa.com",
+  "paylocity.com", "paycom.com", "kronos.com", "dayforce.com",
+  "ceridian.com", "sap.com", "oracle.com",
+  // Agency / RPO sites
+  "myworkday.com", "careers-page.com", "jobscore.com",
+  "jobsoid.com", "freshteam.com", "zohorecruit.com",
 ]);
 
 /**
@@ -36,20 +50,24 @@ const ATS_DOMAINS = new Set([
 export function extractCompanyDomain(jobUrl: string, companyName: string): string {
   try {
     const { hostname } = new URL(jobUrl);
-    // Strip www.
     const host = hostname.replace(/^www\./, "");
-    // Get root domain (last two parts)
     const parts = host.split(".");
-    const rootDomain = parts.slice(-2).join(".");
 
-    if (!ATS_DOMAINS.has(rootDomain) && !ATS_DOMAINS.has(host)) {
-      return rootDomain;
+    // Check root domain AND any suffix combo (catches e.g. oraclecloud.com inside hdpc.fa.us2.oraclecloud.com)
+    const isAts = parts.some((_, i) => {
+      const suffix = parts.slice(i).join(".");
+      return ATS_DOMAINS.has(suffix);
+    });
+
+    if (!isAts) {
+      // Return root domain (last 2 parts), e.g. "goldmansachs.com"
+      return parts.slice(-2).join(".");
     }
   } catch {
     // invalid URL — fall through
   }
 
-  // Fallback: slugify company name + .com
+  // Fallback: slugify company name → goldmansachs.com, bankofamerica.com, etc.
   return companyName.toLowerCase().replace(/[^a-z0-9]/g, "") + ".com";
 }
 

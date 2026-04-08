@@ -15,6 +15,7 @@ import {
   ChevronDown,
   ChevronUp,
   Shield,
+  FlaskConical,
 } from "lucide-react";
 import type { RecruiterLead } from "@/types/database";
 import { Badge } from "@/components/ui/badge";
@@ -27,10 +28,12 @@ import {
   getInitials,
 } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { COMMON_PATTERNS, applyPattern, splitName } from "@/lib/utils/email-patterns";
 
 interface RecruiterCardProps {
   lead: RecruiterLead;
   index: number;
+  companyDomain?: string | null;
 }
 
 function CopyButton({
@@ -68,10 +71,21 @@ function CopyButton({
   );
 }
 
-export function RecruiterCard({ lead, index }: RecruiterCardProps) {
+export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps) {
   const [showOutreach, setShowOutreach] = useState(false);
+  const [showPatterns, setShowPatterns] = useState(false);
   const confidenceColors = getConfidenceColor(lead.confidence_level);
   const emailTypeColors = getEmailTypeColor(lead.email_type);
+
+  const emailCandidates = companyDomain
+    ? (() => {
+        const { first, last } = splitName(lead.full_name);
+        return COMMON_PATTERNS.map(({ pattern, label }) => ({
+          label,
+          email: applyPattern(pattern, first, last, companyDomain),
+        })).filter(({ email }) => email && email !== lead.email);
+      })()
+    : [];
 
   return (
     <motion.div
@@ -216,6 +230,62 @@ export function RecruiterCard({ lead, index }: RecruiterCardProps) {
             </motion.div>
           )}
         </div>
+
+        {/* All email pattern candidates */}
+        {emailCandidates.length > 0 && (
+          <>
+            <Separator className="my-4" />
+            <div>
+              <button
+                onClick={() => setShowPatterns(!showPatterns)}
+                className="flex items-center gap-2 text-sm font-medium text-amber-400 hover:text-amber-300 transition-colors w-full"
+              >
+                <FlaskConical className="w-4 h-4" />
+                <span className="flex-1 text-left">
+                  All Email Guesses
+                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                    ({emailCandidates.length} patterns)
+                  </span>
+                </span>
+                {showPatterns ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )}
+              </button>
+
+              {showPatterns && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="mt-3"
+                >
+                  <p className="text-xs text-muted-foreground/60 mb-2 italic">
+                    Unverified guesses — try each one manually
+                  </p>
+                  <div className="space-y-1.5">
+                    {emailCandidates.map(({ label, email }) => (
+                      <div
+                        key={email}
+                        className="flex items-center gap-2 bg-secondary/30 rounded-md px-2.5 py-1.5 border border-border/40"
+                      >
+                        <span className="text-xs text-muted-foreground/50 font-mono w-20 flex-shrink-0">
+                          {label}
+                        </span>
+                        <span className="text-xs font-mono text-foreground/75 flex-1 truncate">
+                          {email}
+                        </span>
+                        <CopyButton text={email} label={email} />
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </motion.div>
   );
