@@ -171,7 +171,7 @@ export async function PATCH(request: NextRequest) {
 
       const { error: updateError } = await supabase
         .from("jobs")
-        .update(updates)
+        .update(updates as never)
         .eq("id", jobId)
         .eq("user_id", user.id);
 
