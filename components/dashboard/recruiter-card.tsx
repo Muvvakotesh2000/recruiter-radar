@@ -107,16 +107,19 @@ function OutreachSendButton({
       toast.error("No LinkedIn profile URL for this recruiter");
       return;
     }
-    // Copy the appropriate text first
+    // Copy first
     await copyToClipboard(isTruncated ? connectionNote : message);
-    // Open their LinkedIn profile directly — "Message" / "Connect" is one click from here
-    window.open(normaliseLinkedInUrl(linkedinUrl), "_blank", "noopener,noreferrer");
+    // Show toast before opening tab — browser shifts focus on window.open so toast must render first
     toast.success(
       isTruncated
         ? `Message copied (trimmed to ${LI_NOTE_LIMIT} chars). Click Connect → Add a note → Ctrl+V`
         : "Message copied! Click Message or Connect → Add a note → Ctrl+V",
       { duration: 7000 }
     );
+    // Small delay so the toast paints, then open LinkedIn profile
+    setTimeout(() => {
+      window.open(normaliseLinkedInUrl(linkedinUrl), "_blank", "noopener,noreferrer");
+    }, 300);
     setCopied(true);
     setTimeout(() => setCopied(false), 3000);
   }
