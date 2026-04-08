@@ -76,25 +76,15 @@ function CopyButton({
 // LinkedIn connection request note max length
 const LI_NOTE_LIMIT = 300;
 
-/** Extract vanity name from a LinkedIn profile URL, e.g. "john-doe-123" */
-function extractLinkedInVanity(url: string): string | null {
+/** Normalise a LinkedIn profile URL — ensure it ends cleanly */
+function normaliseLinkedInUrl(url: string): string {
   try {
-    const { pathname } = new URL(url);
-    const match = pathname.match(/^\/in\/([^/]+)/);
-    return match ? match[1] : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Build the best LinkedIn URL to land on with message intent */
-function buildLinkedInSendUrl(linkedinUrl: string): string {
-  const vanity = extractLinkedInVanity(linkedinUrl);
-  if (vanity) {
-    // Opens the messaging compose overlay targeted at this person (works for both free + premium)
-    return `https://www.linkedin.com/messaging/compose/?to=https://www.linkedin.com/in/${vanity}`;
-  }
-  return linkedinUrl;
+    const u = new URL(url);
+    // Keep only origin + /in/{vanity}, strip query/hash
+    const match = u.pathname.match(/^(\/in\/[^/]+)/);
+    if (match) return `https://www.linkedin.com${match[1]}`;
+  } catch { /* fall through */ }
+  return url;
 }
 
 function OutreachSendButton({
@@ -119,12 +109,12 @@ function OutreachSendButton({
     }
     // Copy the appropriate text first
     await copyToClipboard(isTruncated ? connectionNote : message);
-    // Open LinkedIn messaging compose for this person
-    window.open(buildLinkedInSendUrl(linkedinUrl), "_blank", "noopener,noreferrer");
+    // Open their LinkedIn profile directly — "Message" / "Connect" is one click from here
+    window.open(normaliseLinkedInUrl(linkedinUrl), "_blank", "noopener,noreferrer");
     toast.success(
       isTruncated
-        ? `Message copied (trimmed to ${LI_NOTE_LIMIT} chars). Paste it in LinkedIn — Ctrl+V / ⌘V`
-        : "Message copied! Paste it in LinkedIn — Ctrl+V / ⌘V",
+        ? `Message copied (trimmed to ${LI_NOTE_LIMIT} chars). Click Connect → Add a note → Ctrl+V`
+        : "Message copied! Click Message or Connect → Add a note → Ctrl+V",
       { duration: 7000 }
     );
     setCopied(true);
