@@ -69,7 +69,7 @@ export async function detectEmailPattern(
   }
 
   // Deduplicate
-  const unique = [...new Set(foundEmails)];
+  const unique = Array.from(new Set(foundEmails));
 
   // Filter out generic/role addresses
   const personal = unique.filter((e) => {
