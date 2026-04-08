@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Plus, Search, Sparkles, SlidersHorizontal } from "lucide-react";
@@ -33,6 +33,11 @@ export function DashboardContent({
 }: DashboardContentProps) {
   const router = useRouter();
   const [jobs, setJobs] = useState<JobWithLeadCount[]>(initialJobs);
+
+  // Sync state when server re-renders with fresh data (after router.refresh())
+  useEffect(() => {
+    setJobs(initialJobs);
+  }, [initialJobs]);
   const [modalOpen, setModalOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
