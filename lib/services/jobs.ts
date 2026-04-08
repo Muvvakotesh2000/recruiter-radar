@@ -27,17 +27,25 @@ type LeadMetricRow = {
   email: string | null;
 };
 
-export async function getUserJobs(userId: string): Promise<Job[]> {
+export type JobWithLeadCount = Job & { lead_count: number };
+
+export async function getUserJobs(userId: string): Promise<JobWithLeadCount[]> {
   const supabase = await createClient();
 
   const { data, error } = await supabase
     .from("jobs")
-    .select("*")
+    .select("*, recruiter_leads(count)")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
   if (error) throw new Error(`Failed to fetch jobs: ${error.message}`);
-  return (data ?? []) as unknown as Job[];
+
+  return ((data ?? []) as unknown as Array<Job & { recruiter_leads: Array<{ count: number }> }>).map(
+    (job) => ({
+      ...job,
+      lead_count: job.recruiter_leads?.[0]?.count ?? 0,
+    })
+  );
 }
 
 export async function getJobWithLeads(

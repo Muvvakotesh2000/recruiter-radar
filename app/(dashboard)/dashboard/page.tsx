@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
-import { getUserJobs, getDashboardMetrics } from "@/lib/services/jobs";
+import { getUserJobs, getDashboardMetrics, type JobWithLeadCount } from "@/lib/services/jobs";
 import { DashboardContent } from "@/components/dashboard/dashboard-content";
 
 export const metadata: Metadata = {
@@ -22,5 +22,5 @@ export default async function DashboardPage() {
     getDashboardMetrics(user.id),
   ]);
 
-  return <DashboardContent initialJobs={jobs} metrics={metrics} userId={user.id} />;
+  return <DashboardContent initialJobs={jobs as JobWithLeadCount[]} metrics={metrics} userId={user.id} />;
 }

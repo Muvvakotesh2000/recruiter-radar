@@ -4,7 +4,7 @@ import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Plus, Search, Sparkles, SlidersHorizontal } from "lucide-react";
-import type { Job } from "@/types/database";
+import type { JobWithLeadCount } from "@/lib/services/jobs";
 import { DashboardMetrics } from "./dashboard-metrics";
 import { JobCard } from "./job-card";
 import { EmptyState } from "./empty-state";
@@ -21,7 +21,7 @@ interface MetricsData {
 }
 
 interface DashboardContentProps {
-  initialJobs: Job[];
+  initialJobs: JobWithLeadCount[];
   metrics: MetricsData;
   userId: string;
 }
@@ -32,7 +32,7 @@ export function DashboardContent({
   userId,
 }: DashboardContentProps) {
   const router = useRouter();
-  const [jobs, setJobs] = useState<Job[]>(initialJobs);
+  const [jobs, setJobs] = useState<JobWithLeadCount[]>(initialJobs);
   const [modalOpen, setModalOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -150,7 +150,7 @@ export function DashboardContent({
               <JobCard
                 key={job.id}
                 job={job}
-                leadCount={0}
+                leadCount={job.lead_count}
                 onDelete={handleDelete}
                 onRegenerate={handleRegenerate}
                 index={index}

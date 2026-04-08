@@ -115,7 +115,7 @@ export function RecruiterCard({ lead, index }: RecruiterCardProps) {
         {/* Contact info */}
         <div className="mt-4 space-y-2.5">
           {/* Email */}
-          {lead.email && (
+          {lead.email ? (
             <div className="flex items-center gap-2">
               <Mail className="w-4 h-4 text-muted-foreground flex-shrink-0" />
               <span className="text-sm text-foreground/90 flex-1 truncate font-mono text-xs">
@@ -124,9 +124,20 @@ export function RecruiterCard({ lead, index }: RecruiterCardProps) {
               <span
                 className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs border ${emailTypeColors.bg} ${emailTypeColors.text} ${emailTypeColors.border} flex-shrink-0`}
               >
-                {lead.email_type}
+                {lead.email_type === "verified"
+                  ? "Confirmed"
+                  : lead.email_type === "estimated"
+                  ? "Via pattern"
+                  : lead.email_type}
               </span>
               <CopyButton text={lead.email} label="Email" />
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Mail className="w-4 h-4 text-muted-foreground/40 flex-shrink-0" />
+              <span className="text-xs text-muted-foreground/50 italic">
+                No email found
+              </span>
             </div>
           )}
 

@@ -28,10 +28,10 @@ QUERY RULES:
 QUERY TYPES TO INCLUDE:
 1. LinkedIn recruiter at this specific company: site:linkedin.com/in "${company_name}" "recruiter" OR "talent acquisition"
 2. LinkedIn TA partner for this role: site:linkedin.com/in "${company_name}" "${job_title}" hiring
-3. Email pattern discovery: "${company_name}" email format recruiter site:hunter.io OR site:apollo.io
-4. Direct contact search: "${company_name}" recruiter email "@" site:apollo.io OR site:rocketreach.co
-5. Company HR team page: "${company_name}" "talent acquisition team" OR "recruiting team" contacts
-6. LinkedIn search with current employer: site:linkedin.com "${company_name}" "currently" recruiter OR "talent partner"
+3. Email pattern discovery: "${company_name}" email format site:hunter.io OR site:apollo.io
+4. Direct recruiter contact with email: "${company_name}" recruiter "@" email site:apollo.io OR site:rocketreach.co
+5. Company careers/team page: site:${company_name.toLowerCase().replace(/\s+/g, "")}.com "talent" OR "recruiting" OR "careers" team
+6. Email pattern + name: "${company_name}" recruiter "firstname.lastname" OR "@${company_name.toLowerCase().replace(/\s+/g, "")}.com"
 
 Write exactly 6 queries. Return ONLY valid JSON, no markdown:
 {
@@ -103,10 +103,17 @@ CONFIDENCE LEVELS:
 - Medium: snippet shows they work at "${company_name}" in a people/HR role
 - Low: weak or indirect connection — ONLY include if no better leads exist
 
+EMAIL ESTIMATION (important):
+- First, scan all results for an email pattern (e.g. first.last@company.com, fname@company.com)
+- If a pattern is found, apply it to EVERY confirmed contact to generate an estimated email
+- Mark those emails as email_type: "estimated" and set email_pattern in the response
+- Even if no direct email is found for a person, estimate it from the pattern if one exists
+- Common patterns to detect: {first}.{last}@domain, {f}{last}@domain, {first}@domain
+- To apply: use the person's actual first/last name with the detected pattern format
+
 OUTPUT RULES:
 - Return 0 recruiters if no valid contacts found — an empty array is better than fabricated data
 - Maximum 5 contacts; prefer quality over quantity
-- If results contain an email pattern (e.g. first.last@company.com), use it to estimate emails for confirmed people only
 
 Return ONLY valid JSON, no markdown or explanation:
 {
