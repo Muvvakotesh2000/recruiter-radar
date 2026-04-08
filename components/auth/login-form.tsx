@@ -48,25 +48,18 @@ export function LoginForm() {
   }
 
   async function handleGoogleSignIn() {
-    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
-    if (!clientId) {
-      toast.error("Google sign in is not configured");
-      return;
-    }
-
     setGoogleLoading(true);
-
-    const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: `${window.location.origin}/auth/callback/google`,
-      response_type: "code",
-      scope: "openid email profile",
-      state: redirectTo,
-      access_type: "offline",
-      prompt: "select_account",
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=${redirectTo}`,
+      },
     });
 
-    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+    if (error) {
+      toast.error("Google sign in failed", { description: error.message });
+      setGoogleLoading(false);
+    }
   }
 
   return (
