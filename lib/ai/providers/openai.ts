@@ -8,6 +8,7 @@ import type {
   RecruiterLeadResponse,
   SearchQueriesResponse,
 } from "@/types/ai";
+import type { HunterResult } from "@/lib/services/hunter";
 import { RecruiterLeadResponseSchema } from "@/types/ai";
 import {
   buildExtractionPrompt,
@@ -73,11 +74,12 @@ export class OpenAIProvider implements AIProvider {
 
   async extractContacts(
     input: RecruiterSearchInput,
-    searchResults: SearchResult[]
+    searchResults: SearchResult[],
+    hunterData?: HunterResult | null
   ): Promise<RecruiterLeadResponse> {
     const raw = await this.call(
       buildExtractionSystemPrompt(),
-      buildExtractionPrompt(input, searchResults)
+      buildExtractionPrompt(input, searchResults, hunterData)
     );
     return RecruiterLeadResponseSchema.parse(JSON.parse(extractJsonFromText(raw)));
   }

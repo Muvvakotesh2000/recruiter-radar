@@ -49,7 +49,8 @@ export interface AIProvider {
   /** Phase 2: extract contacts from real search results */
   extractContacts?(
     input: RecruiterSearchInput,
-    searchResults: import("@/lib/search/base").SearchResult[]
+    searchResults: import("@/lib/search/base").SearchResult[],
+    hunterData?: import("@/lib/services/hunter").HunterResult | null
   ): Promise<RecruiterLeadResponse>;
 
   /** Legacy / fallback single-shot mode */

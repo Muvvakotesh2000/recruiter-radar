@@ -1,5 +1,7 @@
 import type { RecruiterSearchInput } from "@/types/ai";
 import type { SearchResult } from "@/lib/search/base";
+import type { HunterResult, HunterEmail } from "@/lib/services/hunter";
+import { applyEmailPattern } from "@/lib/services/hunter";
 
 // ─── Phase 1: Query Generation ────────────────────────────────────────────────
 
@@ -64,7 +66,8 @@ Return ONLY valid JSON, no markdown:
  */
 export function buildExtractionPrompt(
   input: RecruiterSearchInput,
-  searchResults: SearchResult[]
+  searchResults: SearchResult[],
+  hunterData?: HunterResult | null
 ): string {
   const { company_name, job_title, location, job_url } = input;
 
@@ -86,6 +89,37 @@ Snippet: ${r.snippet}${r.content ? `\nContent: ${r.content.slice(0, 600)}` : ""}
     ? `${location} (any of: ${locations.join(", ")})`
     : location;
 
+  // Build Hunter ground-truth block
+  let hunterBlock = "";
+  if (hunterData) {
+    const lines: string[] = [];
+    lines.push(`VERIFIED EMAIL DATA FROM HUNTER.IO (treat as ground truth):`);
+    lines.push(`- Company domain: ${hunterData.domain}`);
+
+    if (hunterData.pattern) {
+      lines.push(`- Confirmed email pattern: ${hunterData.pattern}@${hunterData.domain}`);
+      lines.push(`  → Apply this pattern to EVERY identified person to generate their estimated email`);
+    }
+
+    const recruiterEmails = hunterData.emails.filter((e: HunterEmail) =>
+      (e.position ?? "").toLowerCase().match(/recruit|talent|hr|people|hiring|acquisition/)
+    );
+    if (recruiterEmails.length > 0) {
+      lines.push(`- Known recruiter emails (confidence ≥70%):`);
+      recruiterEmails.forEach((e: HunterEmail) => {
+        const name = [e.first_name, e.last_name].filter(Boolean).join(" ");
+        lines.push(`  • ${name || "Unknown"} — ${e.email} — ${e.position ?? "unknown role"} (confidence: ${e.confidence}%)`);
+      });
+    } else if (hunterData.emails.length > 0) {
+      lines.push(`- Sample verified emails at this domain (use pattern to estimate others):`);
+      hunterData.emails.slice(0, 5).forEach((e: HunterEmail) => {
+        lines.push(`  • ${e.email}`);
+      });
+    }
+
+    hunterBlock = "\n\n" + lines.join("\n");
+  }
+
   return `You are a strict data extraction expert. Your job is to find REAL recruiter contacts for "${company_name}" from search results.
 
 JOB CONTEXT:
@@ -93,6 +127,7 @@ JOB CONTEXT:
 - Role: ${job_title}
 - Location(s): ${locationDisplay}
 - Job URL: ${job_url}
+${hunterBlock}
 
 SEARCH RESULTS (real web data):
 ${formattedResults}
@@ -130,13 +165,13 @@ CONFIDENCE LEVELS:
 - Medium: snippet shows they work at "${company_name}" in a people/HR role
 - Low: weak or indirect connection — ONLY include if no better leads exist
 
-EMAIL ESTIMATION (important):
-- First, scan all results for an email pattern (e.g. first.last@company.com, fname@company.com)
-- If a pattern is found, apply it to EVERY confirmed contact to generate an estimated email
-- Mark those emails as email_type: "estimated" and set email_pattern in the response
-- Even if no direct email is found for a person, estimate it from the pattern if one exists
-- Common patterns to detect: {first}.{last}@domain, {f}{last}@domain, {first}@domain
-- To apply: use the person's actual first/last name with the detected pattern format
+EMAIL ESTIMATION (critical — follow this order):
+1. If Hunter.io data above contains a known email for this person → use it as email_type: "verified"
+2. If Hunter.io provides a confirmed email pattern → apply it to every identified person's name → email_type: "estimated"
+3. If no Hunter pattern but search results show an email pattern → apply it → email_type: "estimated"
+4. If none of the above → set email: null, email_type: "unknown"
+- Always apply the pattern to EVERY identified recruiter, not just those with known emails
+- Common patterns: {first}.{last}@domain, {f}{last}@domain, {first}{l}@domain, {first}@domain
 
 OUTPUT RULES:
 - Return 0 recruiters if no valid contacts found — an empty array is better than fabricated data

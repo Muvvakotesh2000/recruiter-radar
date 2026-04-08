@@ -11,8 +11,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getAIProvider } from "@/lib/ai/factory";
 import { getSearchProvider } from "@/lib/search/factory";
 import { buildRecruiterPrompt, buildSystemPrompt } from "@/lib/ai/prompt";
+import { hunterDomainSearch, extractCompanyDomain } from "@/lib/services/hunter";
 import type { RecruiterSearchInput, SearchQueriesResponse } from "@/types/ai";
 import type { SearchResult } from "@/lib/search/base";
+import type { HunterResult } from "@/lib/services/hunter";
 
 interface GenerationOptions {
   userId: string;
@@ -96,23 +98,34 @@ export async function runGeneration(
       `[Generation] Phase 1 complete — ${topQueries.length} queries generated`
     );
 
-    // ── Phase 2: Execute searches in parallel ─────────────────────────────────
+    // ── Phase 2: Execute searches + Hunter.io lookup in parallel ─────────────
     console.log(
-      `[Generation] Phase 2 — searching via ${searchProvider.providerName}`
+      `[Generation] Phase 2 — searching via ${searchProvider.providerName} + Hunter.io`
     );
 
-    const searchPromises = topQueries.map((q) =>
-      searchProvider
-        .search(q.query, RESULTS_PER_QUERY)
-        .catch((err) => {
-          console.warn(
-            `[Generation] Query failed (will skip): "${q.query}" — ${err.message}`
-          );
-          return null;
-        })
-    );
+    const companyDomain = extractCompanyDomain(input.job_url, input.company_name);
 
-    const searchResponses = await Promise.all(searchPromises);
+    const [searchResponses, hunterData] = await Promise.all([
+      Promise.all(
+        topQueries.map((q) =>
+          searchProvider
+            .search(q.query, RESULTS_PER_QUERY)
+            .catch((err) => {
+              console.warn(
+                `[Generation] Query failed (will skip): "${q.query}" — ${err.message}`
+              );
+              return null;
+            })
+        )
+      ),
+      hunterDomainSearch(companyDomain).catch(() => null) as Promise<HunterResult | null>,
+    ]);
+
+    if (hunterData) {
+      console.log(
+        `[Generation] Hunter.io found pattern="${hunterData.pattern}" and ${hunterData.emails.length} emails for ${companyDomain}`
+      );
+    }
 
     // Deduplicate results by URL
     const seenUrls = new Set<string>();
@@ -140,7 +153,11 @@ export async function runGeneration(
     let extractedResult;
 
     if (allResults.length > 0 && aiProvider.extractContacts) {
-      extractedResult = await aiProvider.extractContacts(input, allResults);
+      extractedResult = await aiProvider.extractContacts(input, allResults, hunterData);
+    } else if (hunterData && hunterData.emails.length > 0) {
+      // No search results but Hunter has data — extract from Hunter alone
+      console.log("[Generation] No search results — extracting from Hunter.io data only");
+      extractedResult = await aiProvider.extractContacts(input, [], hunterData);
     } else {
       // No search results — return empty rather than hallucinating contacts
       console.warn(
