@@ -1,7 +1,6 @@
 import type { RecruiterSearchInput } from "@/types/ai";
 import type { SearchResult } from "@/lib/search/base";
 import type { HunterResult, HunterEmail } from "@/lib/services/hunter";
-import { applyEmailPattern } from "@/lib/services/hunter";
 
 // ─── Phase 1: Query Generation ────────────────────────────────────────────────
 

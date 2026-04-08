@@ -12,7 +12,8 @@ import { getAIProvider } from "@/lib/ai/factory";
 import { getSearchProvider } from "@/lib/search/factory";
 import { buildRecruiterPrompt, buildSystemPrompt } from "@/lib/ai/prompt";
 import { hunterDomainSearch, extractCompanyDomain } from "@/lib/services/hunter";
-import { bestEmailFromPattern, generateCandidates, splitName } from "@/lib/utils/email-patterns";
+import { detectEmailPattern } from "@/lib/services/email-detective";
+import { applyPattern, splitName } from "@/lib/utils/email-patterns";
 import type { RecruiterSearchInput, SearchQueriesResponse } from "@/types/ai";
 import type { SearchResult } from "@/lib/search/base";
 import type { HunterResult } from "@/lib/services/hunter";
@@ -99,14 +100,15 @@ export async function runGeneration(
       `[Generation] Phase 1 complete — ${topQueries.length} queries generated`
     );
 
-    // ── Phase 2: Execute searches + Hunter.io lookup in parallel ─────────────
+    // ── Phase 2: Execute searches + email pattern detection in parallel ───────
     console.log(
-      `[Generation] Phase 2 — searching via ${searchProvider.providerName} + Hunter.io`
+      `[Generation] Phase 2 — searching via ${searchProvider.providerName}`
     );
 
     const companyDomain = extractCompanyDomain(input.job_url, input.company_name);
 
-    const [searchResponses, hunterData] = await Promise.all([
+    const [searchResponses, hunterData, emailPatternResult] = await Promise.all([
+      // Contact-finding searches
       Promise.all(
         topQueries.map((q) =>
           searchProvider
@@ -119,12 +121,18 @@ export async function runGeneration(
             })
         )
       ),
+      // Hunter.io (optional, if API key is set)
       hunterDomainSearch(companyDomain).catch(() => null) as Promise<HunterResult | null>,
+      // Email detective — 2 targeted searches to find the real email pattern
+      detectEmailPattern(companyDomain, searchProvider).catch(() => null),
     ]);
 
-    if (hunterData) {
+    if (hunterData?.pattern) {
+      console.log(`[Generation] Hunter.io pattern="${hunterData.pattern}" for ${companyDomain}`);
+    }
+    if (emailPatternResult?.confidence !== "none") {
       console.log(
-        `[Generation] Hunter.io found pattern="${hunterData.pattern}" and ${hunterData.emails.length} emails for ${companyDomain}`
+        `[Generation] Email detective: pattern="${emailPatternResult?.pattern}" confidence="${emailPatternResult?.confidence}" examples=${JSON.stringify(emailPatternResult?.examples)}`
       );
     }
 
@@ -153,12 +161,30 @@ export async function runGeneration(
 
     let extractedResult;
 
+    // Merge Hunter data with email detective results so AI gets the full picture
+    const mergedHunterData: HunterResult | null = hunterData ?? (
+      emailPatternResult?.pattern && emailPatternResult.confidence !== "none"
+        ? {
+            pattern: emailPatternResult.pattern,
+            domain: companyDomain,
+            emails: emailPatternResult.examples.map((e) => ({
+              email: e,
+              first_name: null,
+              last_name: null,
+              position: null,
+              confidence: 70,
+              linkedin_url: null,
+            })),
+          }
+        : null
+    );
+
     if (allResults.length > 0 && aiProvider.extractContacts) {
-      extractedResult = await aiProvider.extractContacts(input, allResults, hunterData);
-    } else if (hunterData && hunterData.emails.length > 0 && aiProvider.extractContacts) {
-      // No search results but Hunter has data — extract from Hunter alone
-      console.log("[Generation] No search results — extracting from Hunter.io data only");
-      extractedResult = await aiProvider.extractContacts(input, [], hunterData);
+      extractedResult = await aiProvider.extractContacts(input, allResults, mergedHunterData);
+    } else if (mergedHunterData && mergedHunterData.emails.length > 0 && aiProvider.extractContacts) {
+      // No search results but we have email data — extract from that alone
+      console.log("[Generation] No search results — extracting from email detective data only");
+      extractedResult = await aiProvider.extractContacts(input, [], mergedHunterData);
     } else {
       // No search results — return empty rather than hallucinating contacts
       console.warn(
@@ -181,38 +207,80 @@ export async function runGeneration(
       extracted: extractedResult,
     });
 
-    // ── Phase 3.5: Fill missing emails via pattern inference ─────────────────
-    // Priority: Hunter pattern > AI-detected pattern > first.last default
-    const detectedPattern =
-      hunterData?.pattern ||           // Hunter.io confirmed pattern
-      extractedResult.email_pattern;   // AI-detected pattern from search results
+    // ── Phase 3.5: Fill missing emails — only apply patterns with real evidence ─
+    //
+    // Priority order (highest confidence first):
+    //   1. Hunter.io verified email (exact match for this person)
+    //   2. Hunter.io confirmed pattern (has real examples)
+    //   3. Email detective confirmed pattern (3+ real emails found)
+    //   4. Email detective likely pattern (1-2 real emails found)
+    //   5. AI-detected pattern from search snippets
+    //   6. No evidence — leave email null (do NOT guess)
+
+    // Determine the best available pattern + confidence
+    let bestPattern: string | null = null;
+    let patternSource = "none";
+
+    if (hunterData?.pattern) {
+      bestPattern = hunterData.pattern;
+      patternSource = "hunter";
+    } else if (emailPatternResult?.pattern && emailPatternResult.confidence !== "none") {
+      bestPattern = emailPatternResult.pattern;
+      patternSource = `detective:${emailPatternResult.confidence}`;
+    } else if (extractedResult.email_pattern) {
+      // AI found something in the snippets — trust it only if it looks like a real pattern
+      const aiPattern = extractedResult.email_pattern.replace(/@.*$/, "").trim();
+      if (aiPattern && aiPattern.includes("{")) {
+        bestPattern = aiPattern;
+        patternSource = "ai-detected";
+      }
+    }
+
+    if (bestPattern) {
+      console.log(`[Generation] Applying email pattern="${bestPattern}" (source: ${patternSource})`);
+    }
+
+    // Check if Hunter has a direct email for a specific person
+    const hunterEmailMap = new Map<string, string>();
+    if (hunterData?.emails) {
+      for (const e of hunterData.emails) {
+        if (e.first_name && e.last_name) {
+          const key = `${e.first_name.toLowerCase()} ${e.last_name.toLowerCase()}`;
+          hunterEmailMap.set(key, e.email);
+        }
+      }
+    }
 
     extractedResult.recruiters = extractedResult.recruiters.map((r: any) => {
-      if (r.email) return r; // already has an email, keep it
+      if (r.email && r.email_type === "verified") return r; // keep verified emails
 
       const { first, last } = splitName(r.full_name ?? "");
-      if (!first || !last) return r; // can't split name, skip
+      if (!first || !last) return r;
 
-      if (detectedPattern) {
-        // Apply the confirmed pattern
-        const estimated = bestEmailFromPattern(detectedPattern, r.full_name, companyDomain);
+      // Check Hunter direct match first
+      const hunterEmail = hunterEmailMap.get(`${first.toLowerCase()} ${last.toLowerCase()}`);
+      if (hunterEmail) {
+        return { ...r, email: hunterEmail, email_type: "verified" };
+      }
+
+      // Apply confirmed/likely pattern
+      if (bestPattern) {
+        const estimated = applyPattern(bestPattern, first, last, companyDomain);
         if (estimated) {
           return { ...r, email: estimated, email_type: "estimated" };
         }
       }
 
-      // No pattern found — use first.last as a reasonable default for tech companies
-      const candidates = generateCandidates(r.full_name, companyDomain);
-      if (candidates.length > 0) {
-        return { ...r, email: candidates[0], email_type: "estimated" };
-      }
-
-      return r;
+      // No evidence — don't guess
+      return { ...r, email: null, email_type: "unknown" };
     });
 
-    // Propagate the detected pattern to the response if not already set
-    if (detectedPattern && !extractedResult.email_pattern) {
-      extractedResult = { ...extractedResult, email_pattern: `${detectedPattern}@${companyDomain}` };
+    // Store the pattern we used so it shows in the UI
+    if (bestPattern && !extractedResult.email_pattern) {
+      extractedResult = {
+        ...extractedResult,
+        email_pattern: `${bestPattern}@${companyDomain}`,
+      };
     }
 
     // ── Phase 4: Persist to database ─────────────────────────────────────────
