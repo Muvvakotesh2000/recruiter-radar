@@ -298,6 +298,7 @@ export async function runGeneration(
         user_id: userId,
         full_name: r.full_name,
         recruiter_title: r.job_title,
+        location: r.location ?? null,
         linkedin_url: r.linkedin_url ?? null,
         email: r.email ?? null,
         email_type: r.email_type,

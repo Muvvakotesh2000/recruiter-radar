@@ -5,6 +5,7 @@ import { z } from "zod";
 export const RecruiterContactSchema = z.object({
   full_name: z.string().min(1),
   job_title: z.string().min(1),
+  location: z.string().nullable().optional(),
   linkedin_url: z.string().nullable().optional(),
   email: z.string().nullable().optional(),
   email_type: z.enum(["verified", "estimated", "unknown"]),

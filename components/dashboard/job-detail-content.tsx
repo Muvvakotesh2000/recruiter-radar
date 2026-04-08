@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -23,6 +23,7 @@ import {
   ChevronDown,
   ChevronUp,
   Pencil,
+  Loader2,
 } from "lucide-react";
 import type { JobWithLeads } from "@/types/database";
 import { RecruiterCard } from "./recruiter-card";
@@ -326,9 +327,16 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
               <h2 className="font-display text-xl font-bold text-foreground">
                 Recruiter Leads
               </h2>
-              <Badge variant="purple" className="text-xs">
-                {leads.length} found
-              </Badge>
+              {(job.status === "pending" || job.status === "processing") ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-violet-500/10 text-violet-400 border border-violet-500/20">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Searching...
+                </span>
+              ) : (
+                <Badge variant="purple" className="text-xs">
+                  {leads.length} found
+                </Badge>
+              )}
             </div>
 
             {emailLeads.length > 0 && (
@@ -348,13 +356,15 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
             )}
           </div>
 
-          {leads.length === 0 ? (
+          {(job.status === "pending" || job.status === "processing") ? (
+            <GeneratingLeadsState />
+          ) : leads.length === 0 ? (
             <div className="text-center py-16 glass rounded-xl border border-border/50">
               <Users className="w-10 h-10 mx-auto mb-3 text-muted-foreground/50" />
               <p className="text-muted-foreground font-medium">No recruiter leads found</p>
               <p className="text-sm text-muted-foreground/70 mt-1 mb-4">
                 {job.status === "failed"
-                  ? "Generation failed. Try regenerating with a different AI provider."
+                  ? "Generation failed. Try regenerating."
                   : "Try regenerating to find recruiter contacts."}
               </p>
               <Button
@@ -376,6 +386,85 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+const SEARCH_STEPS = [
+  "Generating targeted search queries...",
+  "Searching LinkedIn for recruiter profiles...",
+  "Querying Apollo & RocketReach for contacts...",
+  "Detecting company email pattern...",
+  "Extracting recruiter contacts from results...",
+  "Building personalized outreach messages...",
+];
+
+function GeneratingLeadsState() {
+  const [stepIndex, setStepIndex] = useState(0);
+  const [progress, setProgress] = useState(8);
+
+  useEffect(() => {
+    const stepInterval = setInterval(() => {
+      setStepIndex((i) => (i + 1) % SEARCH_STEPS.length);
+    }, 4000);
+
+    const progressInterval = setInterval(() => {
+      setProgress((p) => {
+        if (p >= 92) return p;
+        return p + Math.random() * 4;
+      });
+    }, 1200);
+
+    return () => {
+      clearInterval(stepInterval);
+      clearInterval(progressInterval);
+    };
+  }, []);
+
+  return (
+    <div className="space-y-4">
+      {/* Progress card */}
+      <div className="glass rounded-xl border border-violet-500/20 p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-9 h-9 rounded-lg bg-violet-500/10 flex items-center justify-center flex-shrink-0">
+            <Loader2 className="w-5 h-5 text-violet-400 animate-spin" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-foreground">Finding recruiter leads...</p>
+            <p className="text-xs text-muted-foreground">This usually takes 15–30 seconds</p>
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden mb-3">
+          <motion.div
+            className="h-full bg-gradient-to-r from-violet-600 to-blue-500 rounded-full"
+            animate={{ width: `${progress}%` }}
+            transition={{ duration: 1, ease: "easeOut" }}
+          />
+        </div>
+
+        {/* Current step */}
+        <AnimatePresence mode="wait">
+          <motion.p
+            key={stepIndex}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.3 }}
+            className="text-xs text-muted-foreground"
+          >
+            {SEARCH_STEPS[stepIndex]}
+          </motion.p>
+        </AnimatePresence>
+      </div>
+
+      {/* Skeleton cards */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {[0, 1, 2, 3].map((i) => (
+          <RecruiterCardSkeleton key={i} />
+        ))}
       </div>
     </div>
   );

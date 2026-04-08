@@ -8,6 +8,7 @@ import {
   Check,
   Linkedin,
   Mail,
+  MapPin,
   ExternalLink,
   User,
   MessageSquare,
@@ -111,6 +112,14 @@ export function RecruiterCard({ lead, index }: RecruiterCardProps) {
             </div>
           </div>
         </div>
+
+        {/* Location */}
+        {lead.location && (
+          <div className="mt-2 flex items-center gap-1.5">
+            <MapPin className="w-3.5 h-3.5 text-muted-foreground/60 flex-shrink-0" />
+            <span className="text-xs text-muted-foreground">{lead.location}</span>
+          </div>
+        )}
 
         {/* Contact info */}
         <div className="mt-4 space-y-2.5">

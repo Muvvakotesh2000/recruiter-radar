@@ -197,6 +197,7 @@ Return ONLY valid JSON, no markdown or explanation:
     {
       "full_name": "string",
       "job_title": "string",
+      "location": "city, state or country if visible in results, else null",
       "linkedin_url": "string or null",
       "email": "string or null",
       "email_type": "verified|estimated|unknown",
@@ -259,6 +260,7 @@ Return ONLY valid JSON in this exact schema:
     {
       "full_name": "string",
       "job_title": "string",
+      "location": "city/region or null",
       "linkedin_url": "string or null",
       "email": "string or null",
       "email_type": "verified|estimated|unknown",

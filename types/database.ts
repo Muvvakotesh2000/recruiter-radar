@@ -82,6 +82,7 @@ export interface Database {
           user_id: string;
           full_name: string;
           recruiter_title: string;
+          location: string | null;
           linkedin_url: string | null;
           email: string | null;
           email_type: "verified" | "estimated" | "unknown";
@@ -97,6 +98,7 @@ export interface Database {
           user_id: string;
           full_name: string;
           recruiter_title: string;
+          location?: string | null;
           linkedin_url?: string | null;
           email?: string | null;
           email_type?: "verified" | "estimated" | "unknown";
@@ -109,6 +111,7 @@ export interface Database {
         Update: {
           full_name?: string;
           recruiter_title?: string;
+          location?: string | null;
           linkedin_url?: string | null;
           email?: string | null;
           email_type?: "verified" | "estimated" | "unknown";
