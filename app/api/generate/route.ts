@@ -151,13 +151,36 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { jobId } = body;
+    const { jobId, company_name, job_title, job_url, location } = body;
 
     if (!jobId) {
       return NextResponse.json(
         { error: "jobId is required", success: false },
         { status: 400 }
       );
+    }
+
+    // If updated fields are provided, apply them first
+    const hasUpdates = company_name || job_title || job_url || location;
+    if (hasUpdates) {
+      const updates: Partial<JobRow> = {};
+      if (company_name) updates.company_name = company_name;
+      if (job_title) updates.job_title = job_title;
+      if (job_url) updates.job_url = job_url;
+      if (location) updates.location = location;
+
+      const { error: updateError } = await supabase
+        .from("jobs")
+        .update(updates)
+        .eq("id", jobId)
+        .eq("user_id", user.id);
+
+      if (updateError) {
+        return NextResponse.json(
+          { error: "Failed to update job", success: false },
+          { status: 500 }
+        );
+      }
     }
 
     const { data, error: jobError } = await supabase

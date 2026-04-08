@@ -21,10 +21,12 @@ import {
   Search,
   ChevronDown,
   ChevronUp,
+  Pencil,
 } from "lucide-react";
 import type { JobWithLeads } from "@/types/database";
 import { RecruiterCard } from "./recruiter-card";
 import { RecruiterCardSkeleton } from "./skeleton-loaders";
+import { EditJobModal } from "./edit-job-modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -53,6 +55,7 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
   const [deleting, setDeleting] = useState(false);
   const [copiedEmails, setCopiedEmails] = useState(false);
   const [showQueries, setShowQueries] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   const status = getStatusColor(job.status);
   const leads = job.recruiter_leads ?? [];
@@ -109,6 +112,12 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
 
   return (
     <div className="min-h-screen mesh-bg">
+      <EditJobModal
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        job={job}
+        onSuccess={() => router.refresh()}
+      />
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Back button */}
         <Link
@@ -192,6 +201,15 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
 
             {/* Actions */}
             <div className="flex sm:flex-col gap-2 flex-shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEditOpen(true)}
+                className="gap-2"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                Edit
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
