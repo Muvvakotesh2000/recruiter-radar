@@ -140,11 +140,14 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
                 <Label htmlFor="location">Location</Label>
                 <Input
                   id="location"
-                  placeholder="e.g. San Francisco, CA / Remote"
+                  placeholder="e.g. San Francisco, CA / New York, NY"
                   icon={<MapPin className="w-4 h-4" />}
                   {...register("location")}
                   error={errors.location?.message}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Separate multiple locations with <code className="text-violet-400">/</code> or comma. Recruiters in your locations are prioritized.
+                </p>
               </div>
 
               <div className="space-y-2">

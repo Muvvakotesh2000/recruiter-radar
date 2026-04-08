@@ -12,28 +12,39 @@ export function buildQueryGenerationPrompt(
 ): string {
   const { company_name, job_title, location } = input;
 
+  // Parse multiple locations (split by / , ; or "and")
+  const locations = location
+    .split(/[\/,;]|\band\b/i)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  const primaryLocation = locations[0];
+  const hasMultipleLocations = locations.length > 1;
+  const locationList = locations.map((l) => `"${l}"`).join(" OR ");
+  const companySlug = company_name.toLowerCase().replace(/\s+/g, "");
+
   return `You are a recruiting research expert. Generate targeted Google search queries to find REAL recruiter contacts currently working at "${company_name}".
 
 INPUT:
 - Company: ${company_name}
 - Role: ${job_title}
-- Location: ${location}
+- Location(s): ${location}${hasMultipleLocations ? ` (multiple locations: ${locations.join(", ")})` : ""}
 
 QUERY RULES:
-- Every query MUST contain "${company_name}" as a quoted phrase to ensure company-specific results
-- Do NOT write queries that could return recruiters from other companies or generic location-based lists
+- Every query MUST contain "${company_name}" as a quoted phrase — never omit it
+- LOCATION PRIORITY: Prefer queries that combine "${company_name}" with specific city/location names
+- Do NOT write generic queries that return recruiters across all of USA without location anchoring
 - Mix LinkedIn profile searches with email/contact database searches
-- Use Google operators: site:, "quotes", OR
 
-QUERY TYPES TO INCLUDE:
-1. LinkedIn recruiter at this specific company: site:linkedin.com/in "${company_name}" "recruiter" OR "talent acquisition"
-2. LinkedIn TA partner for this role: site:linkedin.com/in "${company_name}" "${job_title}" hiring
+QUERY TYPES TO INCLUDE (write exactly 6):
+1. Location-anchored LinkedIn: site:linkedin.com/in "${company_name}" "recruiter" OR "talent acquisition" ${primaryLocation}
+2. ${hasMultipleLocations ? `Multi-location LinkedIn: site:linkedin.com/in "${company_name}" recruiter (${locationList})` : `Role-specific LinkedIn: site:linkedin.com/in "${company_name}" "${job_title}" recruiter`}
 3. Email pattern discovery: "${company_name}" email format site:hunter.io OR site:apollo.io
-4. Direct recruiter contact with email: "${company_name}" recruiter "@" email site:apollo.io OR site:rocketreach.co
-5. Company careers/team page: site:${company_name.toLowerCase().replace(/\s+/g, "")}.com "talent" OR "recruiting" OR "careers" team
-6. Email pattern + name: "${company_name}" recruiter "firstname.lastname" OR "@${company_name.toLowerCase().replace(/\s+/g, "")}.com"
+4. Location + company recruiter email: "${company_name}" recruiter ${primaryLocation} site:apollo.io OR site:rocketreach.co
+5. Company domain email pattern: "${company_name}" "@${companySlug}.com" recruiter hiring
+6. Company careers/TA team page: "${company_name}" "talent acquisition" OR "recruiting team" ${primaryLocation} contacts
 
-Write exactly 6 queries. Return ONLY valid JSON, no markdown:
+Return ONLY valid JSON, no markdown:
 {
   "queries": [
     {
@@ -66,12 +77,21 @@ Snippet: ${r.snippet}${r.content ? `\nContent: ${r.content.slice(0, 600)}` : ""}
     )
     .join("\n\n---\n\n");
 
+  // Parse multiple locations
+  const locations = location
+    .split(/[\/,;]|\band\b/i)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const locationDisplay = locations.length > 1
+    ? `${location} (any of: ${locations.join(", ")})`
+    : location;
+
   return `You are a strict data extraction expert. Your job is to find REAL recruiter contacts for "${company_name}" from search results.
 
 JOB CONTEXT:
 - Company: ${company_name}
 - Role: ${job_title}
-- Location: ${location}
+- Location(s): ${locationDisplay}
 - Job URL: ${job_url}
 
 SEARCH RESULTS (real web data):
@@ -83,13 +103,20 @@ INCLUSION CRITERIA (ALL must be true to include a person):
 1. Their name must appear explicitly in one of the search results above
 2. The search result must explicitly mention "${company_name}" in connection to this person — not just a city or region
 3. Their role must be recruiter, talent acquisition, HR, hiring manager, or people operations at "${company_name}"
-4. Do NOT include someone just because they are a recruiter in ${location} — they MUST be linked to "${company_name}" specifically
+4. Do NOT include someone just because they are a recruiter in the location — they MUST be linked to "${company_name}" specifically
 
 REJECTION RULES (exclude immediately if any apply):
-- Person is a recruiter at a different company, even if in ${location}
+- Person is a recruiter at a different company, even if in the same location
 - Person's connection to "${company_name}" is inferred — not stated in the result
-- Name appears on a generic "recruiters in ${location}" list without company confirmation
+- Name appears on a generic "recruiters in [city]" list without company confirmation
 - The result is a job board listing with no named contact
+
+LOCATION PRIORITY (rank results in this order):
+- Tier 1 (PREFER): Person is confirmed at "${company_name}" AND their location matches one of: ${locations.join(", ")}
+- Tier 2 (INCLUDE if no Tier 1): Person is confirmed at "${company_name}" but location is unspecified or different
+- Tier 3 (EXCLUDE): Person is a recruiter in the location but NOT confirmed at "${company_name}"
+
+When you have multiple valid contacts, always list Tier 1 contacts first. If you find enough Tier 1 contacts (3+), do not include Tier 2.
 
 DATA RULES:
 - LinkedIn URLs: only include real linkedin.com/in/[username] URLs from the results — never guess or construct them
