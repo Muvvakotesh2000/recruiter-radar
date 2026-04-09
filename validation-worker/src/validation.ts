@@ -2,11 +2,13 @@ import dns from "dns/promises";
 import net from "net";
 import { cacheGet, cacheSet, TTL } from "./cache";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 export type EmailStatus =
-  | "verified"       // SMTP accepted, not catch-all
-  | "invalid"        // SMTP 5xx rejected
+  | "verified"         // SMTP accepted, not catch-all
+  | "invalid"          // SMTP 5xx rejected
   | "catch_all_domain" // server accepts any address
-  | "unknown";       // timeout, greylisting, blocked
+  | "unknown";         // timeout / greylisting / blocked
 
 export interface EmailResult {
   email: string;
@@ -26,61 +28,76 @@ export interface BatchResult {
 // ─── Pattern prevalence for ranking ──────────────────────────────────────────
 
 const PATTERN_RANK: Record<string, number> = {
-  "first.last": 1,
-  "firstlast":  2,
-  "flast":      3,
-  "firstl":     4,
-  "f.last":     5,
-  "first":      6,
-  "last":       7,
-  "last.first": 8,
-  "lastfirst":  9,
+  "first.last": 1, "firstlast": 2, "flast": 3,
+  "firstl": 4,     "f.last": 5,    "first": 6,
+  "last": 7,       "last.first": 8, "lastfirst": 9,
 };
 
-// ─── Layer 1: Syntax ─────────────────────────────────────────────────────────
+// ─── Syntax ───────────────────────────────────────────────────────────────────
 
 export function isValidSyntax(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
 }
 
-// ─── Layer 2: MX lookup (cached) ─────────────────────────────────────────────
+// ─── Layer 1: MX lookup (cached) ─────────────────────────────────────────────
 
 export async function getMxHost(domain: string): Promise<string | null> {
-  const cacheKey = `mx:${domain}`;
-  const cached = cacheGet<string | null>(cacheKey);
-  if (cached !== null) return cached;   // null means "no MX" — still a cache hit
+  const key = `mx:${domain}`;
+  const cached = cacheGet<string | null>(key);
+  if (cached !== undefined) return cached;   // null = "no MX" is still a valid cached value
 
   try {
     const records = await dns.resolveMx(domain);
-    if (!records?.length) {
-      cacheSet(cacheKey, null, TTL.MX);
-      return null;
-    }
+    if (!records?.length) { cacheSet(key, null, TTL.MX); return null; }
     records.sort((a, b) => a.priority - b.priority);
     const host = records[0].exchange;
-    cacheSet(cacheKey, host, TTL.MX);
+    cacheSet(key, host, TTL.MX);
     return host;
   } catch {
-    cacheSet(cacheKey, null, TTL.MX);
+    cacheSet(key, null, TTL.MX);
     return null;
   }
 }
 
-// ─── Layer 3+4: SMTP bulk check + catch-all detection ────────────────────────
+// ─── Per-domain SMTP lock ─────────────────────────────────────────────────────
+// Ensures only ONE SMTP session runs per domain at a time.
+// Concurrent requests for the same domain queue up, then find results in cache.
 
-interface SmtpBulkResult {
-  blocked: boolean;
-  catchAll: boolean;
-  results: Record<string, "accepted" | "rejected" | "unknown">;
+const domainLocks = new Map<string, Promise<void>>();
+
+async function withDomainLock<T>(domain: string, fn: () => Promise<T>): Promise<T> {
+  // Wait for any existing session on this domain to finish
+  const existing = domainLocks.get(domain);
+  if (existing) await existing.catch(() => { /* ignore errors from previous session */ });
+
+  let release!: () => void;
+  const lock = new Promise<void>((resolve) => { release = resolve; });
+  domainLocks.set(domain, lock);
+
+  try {
+    return await fn();
+  } finally {
+    release();
+    domainLocks.delete(domain);
+  }
 }
 
-function smtpBulkCheck(emails: string[], domain: string, mxHost: string): Promise<SmtpBulkResult> {
+// ─── Layer 2+3+4: SMTP bulk check + catch-all ────────────────────────────────
+
+type RawResult = "accepted" | "rejected" | "unknown";
+
+interface SmtpBulkOutput {
+  blocked: boolean;
+  catchAll: boolean;
+  results: Record<string, RawResult>;
+}
+
+function smtpBulkCheck(emails: string[], domain: string, mxHost: string): Promise<SmtpBulkOutput> {
   return new Promise((resolve) => {
     const randomEmail = `probe_${Math.random().toString(36).slice(2, 12)}@${domain}`;
     const queue = [...emails, randomEmail];
-    const raw: Record<string, "accepted" | "rejected" | "unknown"> = {};
-    emails.forEach((e) => (raw[e] = "unknown"));
-    raw[randomEmail] = "unknown";
+    const raw: Record<string, RawResult> = {};
+    queue.forEach((e) => (raw[e] = "unknown"));
 
     let resolved = false;
     let buffer = "";
@@ -94,7 +111,7 @@ function smtpBulkCheck(emails: string[], domain: string, mxHost: string): Promis
       try { socket.destroy(); } catch { /* ignore */ }
 
       const catchAll = raw[randomEmail] === "accepted";
-      const results: Record<string, "accepted" | "rejected" | "unknown"> = {};
+      const results: Record<string, RawResult> = {};
       emails.forEach((e) => (results[e] = raw[e]));
 
       resolve({ blocked, catchAll, results });
@@ -104,12 +121,8 @@ function smtpBulkCheck(emails: string[], domain: string, mxHost: string): Promis
     const socket = net.createConnection({ port: 25, host: mxHost });
 
     const nextRcpt = () => {
-      if (idx < queue.length) {
-        socket.write(`RCPT TO:<${queue[idx]}>\r\n`);
-      } else {
-        socket.write("QUIT\r\n");
-        finish(false);
-      }
+      if (idx < queue.length) socket.write(`RCPT TO:<${queue[idx]}>\r\n`);
+      else { socket.write("QUIT\r\n"); finish(false); }
     };
 
     socket.on("data", (chunk) => {
@@ -152,131 +165,125 @@ function smtpBulkCheck(emails: string[], domain: string, mxHost: string): Promis
   });
 }
 
-// ─── Layer 5: Ranking ─────────────────────────────────────────────────────────
+// ─── Ranking ──────────────────────────────────────────────────────────────────
 
-function rankLabel(email: string, firstName: string, lastName: string): number {
+function patternRank(email: string, first: string, last: string): number {
   const local = email.split("@")[0].toLowerCase();
-  const f = firstName.toLowerCase();
-  const l = lastName.toLowerCase();
-
-  // Match local part against known pattern shapes
+  const f = first.toLowerCase();
+  const l = last.toLowerCase();
   if (local === `${f}.${l}`) return PATTERN_RANK["first.last"];
-  if (local === `${f}${l}`) return PATTERN_RANK["firstlast"];
+  if (local === `${f}${l}`)  return PATTERN_RANK["firstlast"];
   if (local === `${f[0]}${l}`) return PATTERN_RANK["flast"];
   if (local === `${f}${l[0]}`) return PATTERN_RANK["firstl"];
   if (local === `${f[0]}.${l}`) return PATTERN_RANK["f.last"];
-  if (local === f) return PATTERN_RANK["first"];
-  if (local === l) return PATTERN_RANK["last"];
+  if (local === f)             return PATTERN_RANK["first"];
+  if (local === l)             return PATTERN_RANK["last"];
   if (local === `${l}.${f}`) return PATTERN_RANK["last.first"];
-  if (local === `${l}${f}`) return PATTERN_RANK["lastfirst"];
+  if (local === `${l}${f}`)  return PATTERN_RANK["lastfirst"];
   return 99;
 }
 
-// ─── Public: validate a batch ────────────────────────────────────────────────
+// ─── Public API ───────────────────────────────────────────────────────────────
 
 export async function validateBatch(
   domain: string,
   emails: string[],
   firstName: string,
-  lastName: string
+  lastName: string,
 ): Promise<BatchResult> {
-  // Syntax filter
   const valid = emails.filter(isValidSyntax);
 
-  // MX
+  // MX check (cached)
   const mxHost = await getMxHost(domain);
   if (!mxHost) {
     return {
-      domain,
-      is_catch_all: false,
-      mx_found: false,
-      smtp_blocked: false,
+      domain, is_catch_all: false, mx_found: false, smtp_blocked: false,
       results: valid.map((e) => ({ email: e, status: "invalid", confidence: "high" })),
       recommended_email: null,
     };
   }
 
-  // Check per-email cache
-  const uncachedEmails: string[] = [];
-  const cachedResults: Record<string, "accepted" | "rejected" | "unknown"> = {};
+  // ── Concurrency-safe SMTP section ───────────────────────────────────────────
+  // 1. Separate emails into cached vs uncached
+  // 2. Acquire per-domain lock for the uncached ones
+  // 3. Re-check cache inside the lock (another request may have filled it)
+  // 4. Run SMTP only for truly uncached emails
+  // 5. Release lock — other waiters will now find everything in cache
 
-  for (const email of valid) {
-    const hit = cacheGet<"accepted" | "rejected" | "unknown">(`email:${email}`);
-    if (hit !== null) cachedResults[email] = hit;
-    else uncachedEmails.push(email);
-  }
-
-  // Check catch-all cache
   let catchAll = cacheGet<boolean>(`catchall:${domain}`);
   let smtpBlocked = false;
-  const smtpResults: Record<string, "accepted" | "rejected" | "unknown"> = { ...cachedResults };
+  const smtpResults: Record<string, RawResult> = {};
 
-  if (uncachedEmails.length > 0 || catchAll === null) {
-    const smtp = await smtpBulkCheck(
-      uncachedEmails.length > 0 ? uncachedEmails : [valid[0]], // need at least one to detect catch-all
-      domain,
-      mxHost
-    );
-    smtpBlocked = smtp.blocked;
+  // Pre-fill from cache
+  const needsCheck = valid.filter((e) => {
+    const hit = cacheGet<RawResult>(`email:${e}`);
+    if (hit !== null) { smtpResults[e] = hit!; return false; }
+    return true;
+  });
 
-    if (!smtpBlocked) {
-      catchAll = smtp.catchAll;
-      cacheSet(`catchall:${domain}`, catchAll, TTL.CATCH_ALL);
+  const needsCatchAll = catchAll === null;
 
-      for (const [email, result] of Object.entries(smtp.results)) {
-        smtpResults[email] = result;
-        cacheSet(`email:${email}`, result, TTL.EMAIL);
+  if (needsCheck.length > 0 || needsCatchAll) {
+    await withDomainLock(domain, async () => {
+      // Re-check cache inside lock — a concurrent request may have just finished
+      const stillNeeded = needsCheck.filter((e) => {
+        const hit = cacheGet<RawResult>(`email:${e}`);
+        if (hit !== null) { smtpResults[e] = hit!; return false; }
+        return true;
+      });
+
+      catchAll = cacheGet<boolean>(`catchall:${domain}`);
+
+      if (stillNeeded.length === 0 && catchAll !== null) return; // everything cached now
+
+      // Use at least one email so we can detect catch-all even if all emails are cached
+      const probeEmails = stillNeeded.length > 0 ? stillNeeded : [valid[0]];
+      const smtp = await smtpBulkCheck(probeEmails, domain, mxHost);
+      smtpBlocked = smtp.blocked;
+
+      if (!smtpBlocked) {
+        catchAll = smtp.catchAll;
+        cacheSet(`catchall:${domain}`, catchAll, TTL.CATCH_ALL);
+
+        for (const [email, result] of Object.entries(smtp.results)) {
+          smtpResults[email] = result;
+          cacheSet(`email:${email}`, result, TTL.EMAIL);
+        }
       }
-    }
+    });
   }
 
   catchAll = catchAll ?? false;
 
-  // Build results
+  // Build final results
   const results: EmailResult[] = valid
-    .map((email) => {
+    .map((email): EmailResult => {
       const raw = smtpResults[email] ?? "unknown";
-
       let status: EmailStatus;
-      if (catchAll) {
-        status = "catch_all_domain";
-      } else if (smtpBlocked || raw === "unknown") {
-        status = "unknown";
-      } else if (raw === "accepted") {
-        status = "verified";
-      } else {
-        status = "invalid";
-      }
+      if (catchAll)                          status = "catch_all_domain";
+      else if (smtpBlocked || raw === "unknown") status = "unknown";
+      else if (raw === "accepted")           status = "verified";
+      else                                   status = "invalid";
 
       const confidence: EmailResult["confidence"] =
-        status === "verified" ? "high"
-        : status === "invalid" ? "high"
+        status === "verified" || status === "invalid" ? "high"
         : status === "catch_all_domain" ? "low"
         : "medium";
 
       return { email, status, confidence };
     })
-    // Sort: verified first, then by pattern prevalence rank
     .sort((a, b) => {
-      if (a.status === "verified" && b.status !== "verified") return -1;
-      if (b.status === "verified" && a.status !== "verified") return 1;
-      if (a.status === "invalid" && b.status !== "invalid") return 1;
-      if (b.status === "invalid" && a.status !== "invalid") return -1;
-      return rankLabel(a.email, firstName, lastName) - rankLabel(b.email, firstName, lastName);
+      // verified first, invalid last, then by pattern rank
+      const order = (s: EmailStatus) =>
+        s === "verified" ? 0 : s === "unknown" ? 1 : s === "catch_all_domain" ? 2 : 3;
+      if (order(a.status) !== order(b.status)) return order(a.status) - order(b.status);
+      return patternRank(a.email, firstName, lastName) - patternRank(b.email, firstName, lastName);
     });
 
-  // Recommended = first verified, or first non-invalid ranked candidate
   const recommended =
     results.find((r) => r.status === "verified")?.email ??
     results.find((r) => r.status !== "invalid")?.email ??
     null;
 
-  return {
-    domain,
-    is_catch_all: catchAll,
-    mx_found: true,
-    smtp_blocked: smtpBlocked,
-    results,
-    recommended_email: recommended,
-  };
+  return { domain, is_catch_all: catchAll, mx_found: true, smtp_blocked: smtpBlocked, results, recommended_email: recommended };
 }

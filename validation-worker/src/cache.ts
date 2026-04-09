@@ -11,12 +11,14 @@ export const TTL = {
   EMAIL: 7 * 24 * 60 * 60 * 1000,     // 7 days
 };
 
-export function cacheGet<T>(key: string): T | null {
+// Returns the cached value, or `undefined` (not `null`) when there is no cache entry.
+// This lets callers store `null` as a valid cached value (e.g. "no MX found").
+export function cacheGet<T>(key: string): T | undefined {
   const entry = store.get(key) as CacheEntry<T> | undefined;
-  if (!entry) return null;
+  if (!entry) return undefined;
   if (Date.now() > entry.expires) {
     store.delete(key);
-    return null;
+    return undefined;
   }
   return entry.value;
 }
