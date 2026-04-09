@@ -145,14 +145,32 @@ function OutreachSendButton({
   );
 }
 
-type VerifyStatus = "checking" | "domain_ok" | "no_mx" | "invalid_format" | "error";
+type VerifyStatus =
+  | "checking"
+  | "valid"           // SMTP confirmed, not catch-all
+  | "invalid"         // SMTP rejected (550/551)
+  | "catch_all"       // domain accepts any address — rank, don't trust
+  | "domain_ok"       // MX exists but SMTP blocked; could still be real
+  | "no_mx"           // domain has no mail servers
+  | "invalid_format"
+  | "error";
+
+const VERIFY_CONFIGS: Record<Exclude<VerifyStatus, "checking">, { icon: React.ReactNode; label: string; cls: string; tip: string }> = {
+  valid:          { icon: <CheckCircle2 className="w-3.5 h-3.5" />, label: "Valid",      cls: "text-emerald-400",     tip: "SMTP confirmed — mailbox exists"                   },
+  invalid:        { icon: <XCircle      className="w-3.5 h-3.5" />, label: "Invalid",    cls: "text-red-400",         tip: "Mail server rejected this address"                  },
+  catch_all:      { icon: <HelpCircle   className="w-3.5 h-3.5" />, label: "Catch-all",  cls: "text-amber-400",       tip: "Domain accepts any address — can't confirm mailbox" },
+  domain_ok:      { icon: <CheckCircle2 className="w-3.5 h-3.5" />, label: "Domain OK",  cls: "text-blue-400",        tip: "Domain has MX records; SMTP check was blocked"      },
+  no_mx:          { icon: <XCircle      className="w-3.5 h-3.5" />, label: "No MX",      cls: "text-red-400",         tip: "Domain has no mail servers — email is invalid"      },
+  invalid_format: { icon: <XCircle      className="w-3.5 h-3.5" />, label: "Bad format", cls: "text-red-400",         tip: "Not a valid email format"                          },
+  error:          { icon: <HelpCircle   className="w-3.5 h-3.5" />, label: "Error",      cls: "text-muted-foreground",tip: "Verification failed"                                },
+};
 
 function VerifyButton({ email }: { email: string }) {
   const [status, setStatus] = useState<VerifyStatus | null>(null);
 
   const verify = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (status && status !== "error") return; // don't re-verify unless previous attempt errored
+    if (status && status !== "error") return;
     setStatus("checking");
     try {
       const res = await fetch(`/api/verify-email?email=${encodeURIComponent(email)}`);
@@ -174,7 +192,7 @@ function VerifyButton({ email }: { email: string }) {
       <button
         onClick={verify}
         className="text-xs px-1.5 py-0.5 rounded border border-border/50 text-muted-foreground/60 hover:text-violet-400 hover:border-violet-500/40 transition-all flex-shrink-0"
-        title="Check if this domain accepts email (free DNS lookup)"
+        title="3-layer check: format → DNS MX → SMTP probe"
       >
         Verify
       </button>
@@ -185,19 +203,9 @@ function VerifyButton({ email }: { email: string }) {
     return <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground flex-shrink-0" />;
   }
 
-  const configs: Record<Exclude<VerifyStatus, "checking">, { icon: React.ReactNode; label: string; cls: string }> = {
-    domain_ok:      { icon: <CheckCircle2  className="w-3.5 h-3.5" />, label: "Domain OK",  cls: "text-emerald-400"      },
-    no_mx:          { icon: <XCircle       className="w-3.5 h-3.5" />, label: "No mail",    cls: "text-red-400"           },
-    invalid_format: { icon: <XCircle       className="w-3.5 h-3.5" />, label: "Bad format", cls: "text-red-400"           },
-    error:          { icon: <HelpCircle    className="w-3.5 h-3.5" />, label: "Error",      cls: "text-muted-foreground"  },
-  };
-
-  const cfg = configs[status as Exclude<VerifyStatus, "checking">];
+  const cfg = VERIFY_CONFIGS[status as Exclude<VerifyStatus, "checking">];
   return (
-    <span
-      className={`flex items-center gap-1 text-xs flex-shrink-0 ${cfg.cls}`}
-      title={status === "domain_ok" ? "Domain has valid mail servers" : "Domain has no mail servers — email likely invalid"}
-    >
+    <span className={`flex items-center gap-1 text-xs flex-shrink-0 ${cfg.cls}`} title={cfg.tip}>
       {cfg.icon}
       <span>{cfg.label}</span>
     </span>
@@ -407,7 +415,7 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
                   className="mt-3"
                 >
                   <p className="text-xs text-muted-foreground/60 mb-2 italic">
-                    Click Verify to check if the domain has mail servers (free DNS lookup)
+                    Verify runs format → MX → SMTP → catch-all detection
                   </p>
                   <div className="space-y-1.5">
                     {emailCandidates.map(({ label, email }) => (
