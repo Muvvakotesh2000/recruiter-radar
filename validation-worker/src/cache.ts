@@ -1,36 +1,40 @@
-interface CacheEntry<T> {
-  value: T;
-  expires: number;
-}
-
-const store = new Map<string, CacheEntry<unknown>>();
+import { redis } from "./redis";
 
 export const TTL = {
-  MX: 7 * 24 * 60 * 60 * 1000,       // 7 days
-  CATCH_ALL: 3 * 24 * 60 * 60 * 1000, // 3 days
-  EMAIL: 7 * 24 * 60 * 60 * 1000,     // 7 days
+  MX: 7 * 24 * 60 * 60,       // 7 days  (seconds — Redis TTL)
+  CATCH_ALL: 3 * 24 * 60 * 60, // 3 days
+  EMAIL: 7 * 24 * 60 * 60,     // 7 days
+  RESULT: 24 * 60 * 60,        // 1 day  (job results)
 };
 
-// Returns the cached value, or `undefined` (not `null`) when there is no cache entry.
-// This lets callers store `null` as a valid cached value (e.g. "no MX found").
-export function cacheGet<T>(key: string): T | undefined {
-  const entry = store.get(key) as CacheEntry<T> | undefined;
-  if (!entry) return undefined;
-  if (Date.now() > entry.expires) {
-    store.delete(key);
-    return undefined;
-  }
-  return entry.value;
+export async function cacheGet<T>(key: string): Promise<T | null> {
+  const raw = await redis.get(key);
+  if (raw === null) return null;
+  try { return JSON.parse(raw) as T; }
+  catch { return null; }
 }
 
-export function cacheSet<T>(key: string, value: T, ttlMs: number): void {
-  store.set(key, { value, expires: Date.now() + ttlMs });
+export async function cacheSet<T>(key: string, value: T, ttlSeconds: number): Promise<void> {
+  await redis.set(key, JSON.stringify(value), "EX", ttlSeconds);
 }
 
-// Periodically evict expired entries so memory doesn't grow forever
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of store.entries()) {
-    if (now > entry.expires) store.delete(key);
-  }
-}, 60 * 60 * 1000); // every hour
+// Distributed lock using Redis SET NX EX
+// Returns a release function, or null if lock couldn't be acquired
+export async function acquireLock(key: string, ttlSeconds = 30): Promise<(() => Promise<void>) | null> {
+  const token = Math.random().toString(36).slice(2);
+  const lockKey = `lock:${key}`;
+  const result = await redis.set(lockKey, token, "EX", ttlSeconds, "NX");
+  if (!result) return null;
+
+  return async () => {
+    // Only release if we still own the lock (Lua script for atomicity)
+    const script = `
+      if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("del", KEYS[1])
+      else
+        return 0
+      end
+    `;
+    await redis.eval(script, 1, lockKey, token);
+  };
+}

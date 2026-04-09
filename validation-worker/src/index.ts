@@ -1,5 +1,14 @@
+/**
+ * HTTP API process — receives requests from Vercel, enqueues jobs,
+ * waits for results (up to 20s), falls back to async polling.
+ */
+
 import express, { Request, Response, NextFunction } from "express";
-import { validateBatch, isValidSyntax } from "./validation";
+import { queue, waitForJob } from "./queue";
+import { cacheGet, cacheSet, TTL } from "./cache";
+import { redis } from "./redis";
+import { isValidSyntax } from "./validation";
+import type { BatchResult } from "./validation";
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -7,36 +16,25 @@ app.use(express.json({ limit: "1mb" }));
 const SECRET = process.env.VALIDATION_SECRET;
 const PORT = process.env.PORT ?? 3001;
 
-// ─── Auth middleware ──────────────────────────────────────────────────────────
+// ─── Auth ─────────────────────────────────────────────────────────────────────
 
 function requireSecret(req: Request, res: Response, next: NextFunction): void {
-  if (!SECRET) { next(); return; } // secret not configured → open (dev only)
+  if (!SECRET) { next(); return; }
   if (req.headers["x-validation-secret"] !== SECRET) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
+    res.status(401).json({ error: "Unauthorized" }); return;
   }
   next();
 }
 
-// ─── Rate limiting (simple in-memory, per IP) ─────────────────────────────────
+// ─── Rate limit (per IP, using Redis — survives restarts) ────────────────────
 
-const rateLimiter = new Map<string, { count: number; reset: number }>();
-const RATE_LIMIT = 60;      // requests per window
-const RATE_WINDOW = 60_000; // 1 minute
-
-function rateLimit(req: Request, res: Response, next: NextFunction): void {
-  const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0] ?? req.socket.remoteAddress ?? "unknown";
-  const now = Date.now();
-  const entry = rateLimiter.get(ip);
-
-  if (!entry || now > entry.reset) {
-    rateLimiter.set(ip, { count: 1, reset: now + RATE_WINDOW });
-    next();
-    return;
-  }
-
-  entry.count++;
-  if (entry.count > RATE_LIMIT) {
+async function rateLimit(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0].trim()
+    ?? req.socket.remoteAddress ?? "unknown";
+  const key = `ratelimit:${ip}`;
+  const count = await redis.incr(key);
+  if (count === 1) await redis.expire(key, 60); // 60-second window
+  if (count > 120) { // 120 req/min per IP
     res.status(429).json({ error: "Too many requests" });
     return;
   }
@@ -45,12 +43,23 @@ function rateLimit(req: Request, res: Response, next: NextFunction): void {
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
-app.get("/health", (_req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
+app.get("/health", async (_req, res) => {
+  const [waiting, active] = await Promise.all([
+    queue.getWaitingCount(),
+    queue.getActiveCount(),
+  ]);
+  res.json({ status: "ok", queue: { waiting, active }, timestamp: new Date().toISOString() });
 });
 
-// POST /validate-batch
-// Body: { domain, emails[], first_name, last_name }
+/**
+ * POST /validate-batch
+ * Body: { domain, emails[], first_name, last_name }
+ *
+ * Strategy:
+ *  1. Check Redis result cache — instant response if recent result exists
+ *  2. Enqueue job and wait up to 20s for it to complete (sync-style for Vercel)
+ *  3. If 20s timeout → return jobId so client can poll /result/:jobId
+ */
 app.post("/validate-batch", requireSecret, rateLimit, async (req: Request, res: Response): Promise<void> => {
   const { domain, emails, first_name, last_name } = req.body as {
     domain?: string;
@@ -59,54 +68,79 @@ app.post("/validate-batch", requireSecret, rateLimit, async (req: Request, res: 
     last_name?: string;
   };
 
-  if (!domain || !Array.isArray(emails) || emails.length === 0) {
-    res.status(400).json({ error: "domain and emails[] are required" });
-    return;
-  }
-  if (!first_name || !last_name) {
-    res.status(400).json({ error: "first_name and last_name are required for ranking" });
+  if (!domain || !Array.isArray(emails) || !emails.length || !first_name || !last_name) {
+    res.status(400).json({ error: "domain, emails[], first_name, last_name required" });
     return;
   }
   if (emails.length > 20) {
-    res.status(400).json({ error: "Maximum 20 emails per batch" });
+    res.status(400).json({ error: "Max 20 emails per batch" });
     return;
   }
 
+  const validEmails = emails.filter(isValidSyntax);
+  const cacheKey = `result:${domain}:${validEmails.sort().join(",")}`;
+
+  // 1. Cache hit
+  const cached = await cacheGet<BatchResult>(cacheKey);
+  if (cached) { res.json({ ...cached, cached: true }); return; }
+
+  // 2. Enqueue and wait
+  const job = await queue.add("validate", {
+    domain,
+    emails: validEmails,
+    firstName: first_name,
+    lastName: last_name,
+  });
+
   try {
-    const result = await validateBatch(domain, emails, first_name, last_name);
+    const result = await waitForJob(job.id!, 20000);
+    await cacheSet(cacheKey, result, TTL.RESULT);
     res.json(result);
-  } catch (err) {
-    console.error("[validate-batch]", err);
-    res.status(500).json({ error: "Validation failed" });
+  } catch {
+    // 3. Timeout — return jobId for polling
+    res.status(202).json({
+      status: "queued",
+      jobId: job.id,
+      pollUrl: `/result/${job.id}`,
+      message: "Job queued. Poll /result/:jobId for the result.",
+    });
   }
 });
 
-// POST /validate-email  (single email convenience endpoint)
-app.post("/validate-email", requireSecret, rateLimit, async (req: Request, res: Response): Promise<void> => {
-  const { email, first_name = "", last_name = "" } = req.body as {
-    email?: string;
-    first_name?: string;
-    last_name?: string;
-  };
+/**
+ * GET /result/:jobId
+ * Poll for async job result (used when /validate-batch times out)
+ */
+app.get("/result/:jobId", requireSecret, async (req: Request, res: Response): Promise<void> => {
+  const job = await queue.getJob(req.params.jobId);
 
-  if (!email || !isValidSyntax(email)) {
-    res.status(400).json({ error: "Valid email required" });
+  if (!job) { res.status(404).json({ error: "Job not found" }); return; }
+
+  const state = await job.getState();
+
+  if (state === "completed") {
+    res.json({ status: "completed", result: job.returnvalue });
+    return;
+  }
+  if (state === "failed") {
+    res.status(500).json({ status: "failed", error: job.failedReason });
     return;
   }
 
-  const domain = email.split("@")[1];
-  try {
-    const result = await validateBatch(domain, [email], first_name, last_name);
-    res.json(result.results[0] ?? { email, status: "unknown", confidence: "low" });
-  } catch (err) {
-    console.error("[validate-email]", err);
-    res.status(500).json({ error: "Validation failed" });
-  }
+  res.json({ status: state, jobId: job.id });
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
-  console.log(`[validation-worker] listening on port ${PORT}`);
-  if (!SECRET) console.warn("[validation-worker] WARNING: VALIDATION_SECRET not set — running open");
+  console.log(`[api] listening on port ${PORT}`);
+  if (!SECRET) console.warn("[api] WARNING: VALIDATION_SECRET not set");
 });
+
+async function shutdown() {
+  console.log("[api] shutting down…");
+  await queue.close();
+  process.exit(0);
+}
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
