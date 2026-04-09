@@ -91,7 +91,7 @@ export function LoginForm() {
       window.removeEventListener("message", onMessage);
       clearInterval(pollClosed);
       setGoogleLoading(false);
-      if (!popup.closed) popup.close();
+      if (!popup.closed) popup?.close();
     }
 
     window.addEventListener("message", onMessage);
