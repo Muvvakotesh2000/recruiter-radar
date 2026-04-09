@@ -9,8 +9,6 @@ import {
   Linkedin,
   Mail,
   MapPin,
-  ExternalLink,
-  User,
   MessageSquare,
   ChevronDown,
   ChevronUp,
@@ -18,13 +16,11 @@ import {
   FlaskConical,
   Send,
   AlertCircle,
+  ExternalLink,
 } from "lucide-react";
 import type { RecruiterLead } from "@/types/database";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import {
   getConfidenceColor,
-  getEmailTypeColor,
   copyToClipboard,
   getInitials,
 } from "@/lib/utils";
@@ -54,7 +50,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+      className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all flex-shrink-0"
       title={`Copy ${label}`}
     >
       {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -104,7 +100,7 @@ function OutreachSendButton({ message, linkedinUrl }: { message: string; linkedi
       onClick={handleSend}
       disabled={!linkedinUrl}
       title={linkedinUrl ? "Copy message & open LinkedIn" : "No LinkedIn URL available"}
-      className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 hover:border-blue-500/40 transition-all text-blue-400 hover:text-blue-300 disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
+      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/25 hover:border-violet-500/50 transition-all text-violet-300 hover:text-violet-200 disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
     >
       {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Send className="w-3 h-3" />}
       Send
@@ -122,11 +118,9 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
   const [showEmailDropdown, setShowEmailDropdown] = useState(false);
 
   const confidenceColors = getConfidenceColor(lead.confidence_level);
-  const emailTypeColors = getEmailTypeColor(lead.email_type);
 
   const { first: firstName, last: lastName } = splitName(lead.full_name);
 
-  // All generated candidates, sorted by prevalence (COMMON_PATTERNS already sorted)
   const allCandidates = companyDomain
     ? COMMON_PATTERNS
         .map(({ pattern, label, pct }) => ({
@@ -140,215 +134,203 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
   const topCandidates = allCandidates.slice(0, TOP_N);
   const moreCandidates = allCandidates.slice(TOP_N);
 
+  const hasVerifiedEmail = lead.email && lead.email_type === "verified";
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.08, duration: 0.4, ease: "easeOut" }}
-      className="glass rounded-xl border border-border/50 hover:border-violet-500/25 transition-all duration-300 overflow-hidden group"
+      className="relative glass rounded-2xl border border-border/50 hover:border-violet-500/30 transition-all duration-300 overflow-hidden group"
     >
-      <div className="h-px bg-gradient-to-r from-transparent via-violet-500/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+      {/* Top accent bar */}
+      <div className="h-0.5 bg-gradient-to-r from-violet-600 via-blue-500 to-violet-600 opacity-40 group-hover:opacity-80 transition-opacity" />
 
-      <div className="p-5">
-        {/* Header */}
-        <div className="flex items-start gap-3">
-          <Avatar className="h-11 w-11 ring-2 ring-border group-hover:ring-violet-500/30 transition-all flex-shrink-0">
-            <AvatarFallback className="text-sm">{getInitials(lead.full_name)}</AvatarFallback>
+      <div className="p-5 space-y-4">
+
+        {/* ── Header ── */}
+        <div className="flex items-start gap-3.5">
+          <Avatar className="h-12 w-12 flex-shrink-0 ring-2 ring-violet-500/20 group-hover:ring-violet-500/40 transition-all">
+            <AvatarFallback className="bg-gradient-to-br from-violet-500/20 to-blue-500/20 text-sm font-bold text-violet-200">
+              {getInitials(lead.full_name)}
+            </AvatarFallback>
           </Avatar>
+
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <h4 className="font-semibold font-display text-foreground truncate">{lead.full_name}</h4>
-                <p className="text-sm text-muted-foreground truncate">{lead.recruiter_title}</p>
+                <h4 className="font-semibold text-base font-display text-foreground leading-tight truncate">
+                  {lead.full_name}
+                </h4>
+                <p className="text-sm text-muted-foreground truncate mt-0.5">
+                  {lead.recruiter_title}
+                </p>
               </div>
               <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 border ${confidenceColors.bg} ${confidenceColors.text} ${confidenceColors.border}`}>
                 <Shield className="w-3 h-3" />
                 {lead.confidence_level}
               </span>
             </div>
+            {lead.location && (
+              <div className="mt-1.5 flex items-center gap-1">
+                <MapPin className="w-3 h-3 text-muted-foreground/50 flex-shrink-0" />
+                <span className="text-xs text-muted-foreground/70 truncate">{lead.location}</span>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Location */}
-        {lead.location && (
-          <div className="mt-2 flex items-center gap-1.5">
-            <MapPin className="w-3.5 h-3.5 text-muted-foreground/60 flex-shrink-0" />
-            <span className="text-xs text-muted-foreground">{lead.location}</span>
+        {/* ── Contact actions ── */}
+        <div className="flex gap-2">
+          {lead.linkedin_url && (
+            <a
+              href={normaliseLinkedInUrl(lead.linkedin_url)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 hover:border-blue-500/40 text-blue-400 hover:text-blue-300 text-xs font-medium transition-all"
+            >
+              <Linkedin className="w-3.5 h-3.5" />
+              LinkedIn
+              <ExternalLink className="w-3 h-3 opacity-50" />
+            </a>
+          )}
+
+          {hasVerifiedEmail && (
+            <div className="flex-1 flex items-center gap-1.5 py-2 px-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 min-w-0">
+              <Mail className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+              <span className="text-xs font-mono text-emerald-300 flex-1 truncate">{lead.email}</span>
+              <CopyButton text={lead.email!} label="Email" />
+            </div>
+          )}
+        </div>
+
+        {/* ── Possible emails dropdown ── */}
+        {topCandidates.length > 0 && (
+          <div className="rounded-xl border border-border/40 overflow-hidden">
+            <button
+              onClick={() => setShowEmailDropdown((v) => !v)}
+              className="w-full flex items-center gap-2 px-3.5 py-2.5 hover:bg-secondary/30 transition-colors"
+            >
+              <Mail className="w-3.5 h-3.5 text-violet-400 flex-shrink-0" />
+              <span className="flex-1 text-left text-xs font-medium text-violet-300">
+                Possible Emails Found
+              </span>
+              <span className="text-xs text-muted-foreground/50 bg-secondary/60 px-1.5 py-0.5 rounded-full mr-1">
+                {topCandidates.length}
+              </span>
+              <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground/60 flex-shrink-0 transition-transform ${showEmailDropdown ? "rotate-180" : ""}`} />
+            </button>
+
+            {showEmailDropdown && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                transition={{ duration: 0.2 }}
+                className="border-t border-border/30"
+              >
+                {topCandidates.map(({ email }, i) => (
+                  <div
+                    key={email}
+                    className="flex items-center gap-2.5 px-3.5 py-2 hover:bg-secondary/30 transition-colors border-b border-border/20 last:border-0"
+                  >
+                    <span className="text-xs text-muted-foreground/30 w-4 text-center flex-shrink-0 tabular-nums">{i + 1}</span>
+                    <span className="text-xs font-mono text-foreground/80 flex-1 truncate">{email}</span>
+                    <CopyButton text={email} label={email} />
+                  </div>
+                ))}
+              </motion.div>
+            )}
           </div>
         )}
 
-        {/* Contact info */}
-        <div className="mt-4 space-y-2.5">
-
-          {/* Confirmed / Hunter email only (not pattern-estimated) */}
-          {lead.email && lead.email_type === "verified" && (
-            <div className="flex items-center gap-2">
-              <Mail className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-              <span className="text-xs font-mono text-foreground/90 flex-1 truncate">{lead.email}</span>
-              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs border flex-shrink-0 ${emailTypeColors.bg} ${emailTypeColors.text} ${emailTypeColors.border}`}>
-                Confirmed
-              </span>
-              <CopyButton text={lead.email} label="Email" />
-            </div>
-          )}
-
-          {/* Top email candidates — collapsible dropdown */}
-          {topCandidates.length > 0 && (
-            <div>
-              <button
-                onClick={() => setShowEmailDropdown((v) => !v)}
-                className="flex items-center gap-2 text-xs font-medium text-violet-400/80 hover:text-violet-300 transition-colors"
-              >
-                <Mail className="w-3.5 h-3.5 flex-shrink-0" />
-                View Possible Emails Found
-                <ChevronDown className={`w-3.5 h-3.5 flex-shrink-0 transition-transform ${showEmailDropdown ? "rotate-180" : ""}`} />
-              </button>
-
-              {showEmailDropdown && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  transition={{ duration: 0.2 }}
-                  className="mt-2 rounded-lg border border-border/50 bg-secondary/20 overflow-hidden"
-                >
-                  {topCandidates.map(({ email }) => (
-                    <div
-                      key={email}
-                      className="flex items-center gap-2 px-2.5 py-2 hover:bg-secondary/40 transition-colors border-b border-border/30 last:border-0"
-                    >
-                      <span className="text-xs font-mono text-foreground/80 flex-1 truncate">{email}</span>
-                      <CopyButton text={email} label={email} />
-                    </div>
-                  ))}
-                </motion.div>
-              )}
-            </div>
-          )}
-
-          {/* No email at all */}
-          {!lead.email && topCandidates.length === 0 && (
-            <div className="flex items-center gap-2">
-              <Mail className="w-4 h-4 text-muted-foreground/40 flex-shrink-0" />
-              <span className="text-xs text-muted-foreground/50 italic">No email found</span>
-            </div>
-          )}
-
-          {/* LinkedIn */}
-          {lead.linkedin_url && (
-            <div className="flex items-center gap-2">
-              <Linkedin className="w-4 h-4 text-blue-400 flex-shrink-0" />
-              <a
-                href={normaliseLinkedInUrl(lead.linkedin_url)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-blue-400 hover:text-blue-300 flex-1 truncate transition-colors hover:underline"
-              >
-                View LinkedIn Profile
-              </a>
-              <a
-                href={normaliseLinkedInUrl(lead.linkedin_url)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-all flex-shrink-0"
-                title="Open LinkedIn profile"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-              <CopyButton text={lead.linkedin_url} label="LinkedIn URL" />
-            </div>
-          )}
-
-          {/* Source */}
-          <div className="flex items-center gap-2">
-            <User className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-            <span className="text-xs text-muted-foreground truncate">Source: {lead.source}</span>
+        {/* No contact info at all */}
+        {!lead.linkedin_url && !hasVerifiedEmail && topCandidates.length === 0 && (
+          <div className="flex items-center gap-2 py-1">
+            <Mail className="w-4 h-4 text-muted-foreground/30 flex-shrink-0" />
+            <span className="text-xs text-muted-foreground/40 italic">No contact info found</span>
           </div>
-        </div>
+        )}
 
-        <Separator className="my-4" />
-
-        {/* Outreach message */}
-        <div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowOutreach(!showOutreach)}
-              className="flex items-center gap-2 text-sm font-medium text-violet-400 hover:text-violet-300 transition-colors flex-1 min-w-0"
-            >
-              <MessageSquare className="w-4 h-4 flex-shrink-0" />
-              <span className="truncate">Outreach Message</span>
-              {showOutreach ? <ChevronUp className="w-4 h-4 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 flex-shrink-0" />}
-            </button>
+        {/* ── Outreach message ── */}
+        <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 overflow-hidden">
+          <button
+            onClick={() => setShowOutreach(!showOutreach)}
+            className="w-full flex items-center gap-2.5 px-4 py-3 hover:bg-violet-500/5 transition-colors"
+          >
+            <MessageSquare className="w-4 h-4 text-violet-400 flex-shrink-0" />
+            <span className="text-sm font-medium text-violet-300 flex-1 text-left">Outreach Message</span>
             {lead.outreach_message && (
-              <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                 <CopyButton text={lead.outreach_message} label="Outreach message" />
                 <OutreachSendButton message={lead.outreach_message} linkedinUrl={lead.linkedin_url} />
               </div>
             )}
-          </div>
+            {showOutreach
+              ? <ChevronUp className="w-4 h-4 text-violet-400/50 flex-shrink-0" />
+              : <ChevronDown className="w-4 h-4 text-violet-400/50 flex-shrink-0" />}
+          </button>
 
           {showOutreach && lead.outreach_message && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               transition={{ duration: 0.2 }}
-              className="mt-3"
             >
-              <div className="bg-secondary/40 rounded-lg p-3.5 border border-border/50">
-                <pre className="text-xs text-foreground/80 whitespace-pre-wrap font-sans leading-relaxed">
+              <div className="px-4 pb-4">
+                <div className="h-px bg-violet-500/15 mb-3" />
+                <pre className="text-xs text-foreground/70 whitespace-pre-wrap font-sans leading-relaxed">
                   {lead.outreach_message}
                 </pre>
+                {lead.outreach_message.length > LI_NOTE_LIMIT && (
+                  <p className="mt-2.5 flex items-center gap-1.5 text-xs text-amber-400/70">
+                    <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                    {lead.outreach_message.length} chars — Send auto-trims to {LI_NOTE_LIMIT} for connection notes
+                  </p>
+                )}
               </div>
-              {lead.outreach_message.length > LI_NOTE_LIMIT && (
-                <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-400/80">
-                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                  {lead.outreach_message.length} chars — Send auto-trims to {LI_NOTE_LIMIT} for connection notes
-                </p>
-              )}
             </motion.div>
           )}
         </div>
 
-        {/* Remaining email patterns */}
+        {/* ── More email patterns ── */}
         {moreCandidates.length > 0 && (
-          <>
-            <Separator className="my-4" />
-            <div>
-              <button
-                onClick={() => setShowPatterns(!showPatterns)}
-                className="flex items-center gap-2 text-sm font-medium text-amber-400/70 hover:text-amber-300 transition-colors w-full"
-              >
-                <FlaskConical className="w-4 h-4" />
-                <span className="flex-1 text-left">
-                  {moreCandidates.length} More Email Patterns
-                </span>
-                {showPatterns ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-              </button>
+          <div>
+            <button
+              onClick={() => setShowPatterns(!showPatterns)}
+              className="flex items-center gap-2 text-xs font-medium text-muted-foreground/50 hover:text-muted-foreground transition-colors w-full"
+            >
+              <FlaskConical className="w-3.5 h-3.5 text-amber-500/50" />
+              <span className="flex-1 text-left">{moreCandidates.length} More Email Patterns</span>
+              {showPatterns ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
 
-              {showPatterns && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  transition={{ duration: 0.2 }}
-                  className="mt-2 space-y-1"
-                >
-                  {moreCandidates.map(({ label, email, pct }) => (
-                    <div
-                      key={email}
-                      className="flex items-center gap-2 bg-secondary/20 rounded-md px-2.5 py-1.5 border border-border/30"
-                    >
-                      <span className="text-xs text-muted-foreground/40 font-mono w-20 flex-shrink-0">{label}</span>
-                      <span className="text-xs font-mono text-foreground/60 flex-1 truncate">{email}</span>
-                      <span className="text-xs text-muted-foreground/40 flex-shrink-0 tabular-nums">
-                        {pct > 0 ? `${pct}%` : "<1%"}
-                      </span>
-                      <CopyButton text={email} label={email} />
-                    </div>
-                  ))}
-                </motion.div>
-              )}
-            </div>
-          </>
+            {showPatterns && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                transition={{ duration: 0.2 }}
+                className="mt-2 rounded-lg border border-border/30 overflow-hidden"
+              >
+                {moreCandidates.map(({ email }) => (
+                  <div
+                    key={email}
+                    className="flex items-center gap-2 px-3 py-2 hover:bg-secondary/30 transition-colors border-b border-border/20 last:border-0"
+                  >
+                    <span className="text-xs font-mono text-foreground/50 flex-1 truncate">{email}</span>
+                    <CopyButton text={email} label={email} />
+                  </div>
+                ))}
+              </motion.div>
+            )}
+          </div>
         )}
+
+        {/* ── Source ── */}
+        <div className="flex items-center gap-1.5 pt-0.5">
+          <span className="text-xs text-muted-foreground/30">via</span>
+          <span className="text-xs text-muted-foreground/50 bg-secondary/40 px-2 py-0.5 rounded-full">{lead.source}</span>
+        </div>
+
       </div>
     </motion.div>
   );
