@@ -311,10 +311,7 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
               >
                 <FlaskConical className="w-4 h-4" />
                 <span className="flex-1 text-left">
-                  More Patterns
-                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                    ({moreCandidates.length} more)
-                  </span>
+                  {moreCandidates.length} More Email Patterns
                 </span>
                 {showPatterns ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
               </button>
