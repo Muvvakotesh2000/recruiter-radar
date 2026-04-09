@@ -1,0 +1,19 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Rounded square background -->
+  <rect width="1024" height="1024" rx="220" fill="#7C3AED"/>
+
+  <!-- Outer ring — faint -->
+  <circle cx="512" cy="512" r="368" stroke="white" stroke-width="38" fill="none" opacity="0.22"/>
+
+  <!-- Middle ring -->
+  <circle cx="512" cy="512" r="238" stroke="white" stroke-width="42" fill="none" opacity="0.55"/>
+
+  <!-- Sweep arm — pointing upper-right (NE, 45°) -->
+  <line x1="512" y1="512" x2="772" y2="252" stroke="white" stroke-width="46" stroke-linecap="round"/>
+
+  <!-- Center dot -->
+  <circle cx="512" cy="512" r="74" fill="white"/>
+
+  <!-- Radar contact blip — between rings, upper-right area -->
+  <circle cx="786" cy="286" r="46" fill="white" opacity="0.95"/>
+</svg>

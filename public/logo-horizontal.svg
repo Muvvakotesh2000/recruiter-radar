@@ -1,0 +1,30 @@
+<svg width="240" height="40" viewBox="0 0 240 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Icon: rounded square -->
+  <rect x="0" y="0" width="40" height="40" rx="8.5" fill="#7C3AED"/>
+
+  <!-- Icon: outer ring -->
+  <circle cx="20" cy="20" r="14.5" stroke="white" stroke-width="1.6" fill="none" opacity="0.25"/>
+
+  <!-- Icon: middle ring -->
+  <circle cx="20" cy="20" r="9.4" stroke="white" stroke-width="1.7" fill="none" opacity="0.58"/>
+
+  <!-- Icon: sweep arm — upper-right (NE) -->
+  <line x1="20" y1="20" x2="30.2" y2="9.8" stroke="white" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Icon: center dot -->
+  <circle cx="20" cy="20" r="2.9" fill="white"/>
+
+  <!-- Icon: contact blip -->
+  <circle cx="30.8" cy="10.6" r="1.8" fill="white" opacity="0.95"/>
+
+  <!-- Wordmark -->
+  <text
+    x="52"
+    y="26"
+    font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    font-size="17"
+    font-weight="600"
+    letter-spacing="-0.3"
+    fill="#FFFFFF"
+  >RecruiterRadar</text>
+</svg>

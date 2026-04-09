@@ -1,0 +1,19 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Rounded square background -->
+  <rect width="32" height="32" rx="7" fill="#7C3AED"/>
+
+  <!-- Outer ring -->
+  <circle cx="16" cy="16" r="11.5" stroke="white" stroke-width="1.3" fill="none" opacity="0.28"/>
+
+  <!-- Middle ring -->
+  <circle cx="16" cy="16" r="7.5" stroke="white" stroke-width="1.4" fill="none" opacity="0.6"/>
+
+  <!-- Sweep arm — upper-right -->
+  <line x1="16" y1="16" x2="24.1" y2="7.9" stroke="white" stroke-width="1.6" stroke-linecap="round"/>
+
+  <!-- Center dot -->
+  <circle cx="16" cy="16" r="2.3" fill="white"/>
+
+  <!-- Contact blip -->
+  <circle cx="24.6" cy="8.8" r="1.5" fill="white" opacity="0.9"/>
+</svg>
