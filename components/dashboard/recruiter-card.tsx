@@ -119,6 +119,7 @@ const TOP_N = 4; // patterns shown inline on the card
 export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps) {
   const [showOutreach, setShowOutreach] = useState(false);
   const [showPatterns, setShowPatterns] = useState(false);
+  const [showEmailDropdown, setShowEmailDropdown] = useState(false);
 
   const confidenceColors = getConfidenceColor(lead.confidence_level);
   const emailTypeColors = getEmailTypeColor(lead.email_type);
@@ -191,29 +192,56 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
             </div>
           )}
 
-          {/* Top 4 pattern candidates shown inline */}
+          {/* Top email candidates — dropdown */}
           {topCandidates.length > 0 && (
-            <div className="space-y-1.5">
-              {!lead.email && (
-                <div className="flex items-center gap-1.5 mb-1">
-                  <Mail className="w-3.5 h-3.5 text-muted-foreground/50 flex-shrink-0" />
-                  <span className="text-xs text-muted-foreground/60">Top email guesses</span>
-                </div>
-              )}
-              {topCandidates.map(({ email, label, pct }) => (
-                <div key={email} className="flex items-center gap-2 pl-6">
-                  <span className="text-xs font-mono text-foreground/80 flex-1 truncate">{email}</span>
-                  <span
-                    title={`${label} — ${pct > 0 ? pct + "%" : "<1%"} of business domains use this pattern`}
-                    className={`text-xs font-medium flex-shrink-0 tabular-nums ${
-                      pct >= 20 ? "text-emerald-400" : pct >= 5 ? "text-amber-400" : "text-muted-foreground/40"
-                    }`}
-                  >
-                    {pct > 0 ? `${pct}%` : "<1%"}
+            <div className="relative">
+              {/* Trigger row — shows best candidate */}
+              <div className="flex items-center gap-2">
+                {!lead.email && <Mail className="w-4 h-4 text-muted-foreground/50 flex-shrink-0" />}
+                {lead.email && <span className="w-4 flex-shrink-0" />}
+                <button
+                  onClick={() => setShowEmailDropdown((v) => !v)}
+                  className="flex items-center gap-1.5 flex-1 min-w-0 text-left group/dd"
+                  title="Show all email pattern candidates"
+                >
+                  <span className="text-xs font-mono text-foreground/80 flex-1 truncate">
+                    {topCandidates[0].email}
                   </span>
-                  <CopyButton text={email} label={email} />
-                </div>
-              ))}
+                  <span className={`text-xs font-medium flex-shrink-0 tabular-nums ${
+                    topCandidates[0].pct >= 20 ? "text-emerald-400" : topCandidates[0].pct >= 5 ? "text-amber-400" : "text-muted-foreground/40"
+                  }`}>
+                    {topCandidates[0].pct > 0 ? `${topCandidates[0].pct}%` : "<1%"}
+                  </span>
+                  <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground/50 flex-shrink-0 transition-transform ${showEmailDropdown ? "rotate-180" : ""}`} />
+                </button>
+                <CopyButton text={topCandidates[0].email} label={topCandidates[0].email} />
+              </div>
+
+              {/* Dropdown list — remaining top candidates */}
+              {showEmailDropdown && topCandidates.length > 1 && (
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.15 }}
+                  className="mt-1 ml-6 rounded-lg border border-border/50 bg-card/95 backdrop-blur-sm shadow-lg overflow-hidden z-10"
+                >
+                  {topCandidates.slice(1).map(({ email, label, pct }) => (
+                    <div
+                      key={email}
+                      className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-secondary/40 transition-colors border-b border-border/30 last:border-0"
+                    >
+                      <span className="text-xs text-muted-foreground/40 font-mono w-20 flex-shrink-0">{label}</span>
+                      <span className="text-xs font-mono text-foreground/75 flex-1 truncate">{email}</span>
+                      <span className={`text-xs font-medium flex-shrink-0 tabular-nums ${
+                        pct >= 20 ? "text-emerald-400" : pct >= 5 ? "text-amber-400" : "text-muted-foreground/40"
+                      }`}>
+                        {pct > 0 ? `${pct}%` : "<1%"}
+                      </span>
+                      <CopyButton text={email} label={email} />
+                    </div>
+                  ))}
+                </motion.div>
+              )}
             </div>
           )}
 
