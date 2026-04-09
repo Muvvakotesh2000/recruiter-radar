@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Clock,
   ChevronRight,
+  Pencil,
 } from "lucide-react";
 import type { Job } from "@/types/database";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ interface JobCardProps {
   leadCount?: number;
   onDelete: (jobId: string) => void;
   onRegenerate: (jobId: string) => void;
+  onEdit: (job: Job) => void;
   index: number;
 }
 
@@ -31,6 +33,7 @@ export function JobCard({
   leadCount = 0,
   onDelete,
   onRegenerate,
+  onEdit,
   index,
 }: JobCardProps) {
   const [deleting, setDeleting] = useState(false);
@@ -148,6 +151,15 @@ export function JobCard({
                 </span>
 
                 <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(job); }}
+                    title="Edit search"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-violet-400"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </Button>
                   <Button
                     variant="ghost"
                     size="icon-sm"

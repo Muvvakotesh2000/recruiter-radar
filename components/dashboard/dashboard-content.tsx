@@ -9,8 +9,10 @@ import { DashboardMetrics } from "./dashboard-metrics";
 import { JobCard } from "./job-card";
 import { EmptyState } from "./empty-state";
 import { NewJobModal } from "./new-job-modal";
+import { EditJobModal } from "./edit-job-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import type { Job } from "@/types/database";
 
 interface MetricsData {
   totalJobs: number;
@@ -39,6 +41,7 @@ export function DashboardContent({
     setJobs(initialJobs);
   }, [initialJobs]);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editJob, setEditJob] = useState<Job | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
@@ -158,6 +161,7 @@ export function DashboardContent({
                 leadCount={job.lead_count}
                 onDelete={handleDelete}
                 onRegenerate={handleRegenerate}
+                onEdit={setEditJob}
                 index={index}
               />
             ))}
@@ -179,6 +183,15 @@ export function DashboardContent({
         onOpenChange={setModalOpen}
         onSuccess={handleSuccess}
       />
+
+      {editJob && (
+        <EditJobModal
+          open={!!editJob}
+          onOpenChange={(open) => { if (!open) setEditJob(null); }}
+          job={editJob}
+          onSuccess={() => { setEditJob(null); router.refresh(); }}
+        />
+      )}
     </div>
   );
 }
