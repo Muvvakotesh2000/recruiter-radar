@@ -203,7 +203,7 @@ Return ONLY valid JSON, no markdown or explanation:
       "email_type": "verified|estimated|unknown",
       "confidence_level": "High|Medium|Low",
       "source": "exact result number and snippet text that confirmed this person works at ${company_name}",
-      "outreach_message": "personalized outreach message following this structure: (1) mention that you applied for the ${job_title} role at ${company_name} in ${location}, (2) say that you noticed the recruiter is located in their city/region, (3) ask whether they are familiar with or involved in this role, (4) if so, ask if they can share more about the role or the team. Keep it friendly, concise (3-4 sentences), and conversational — not overly formal."
+      "outreach_message": "personalized outreach message: (1) mention that you applied for the ${job_title} role at ${company_name} in ${location}, (2) IF the recruiter's location matches or is close to the job location — mention that you noticed they are also based there; ELSE skip the location mention entirely, (3) ask whether they are familiar with or involved in this opening, (4) if so, ask if they can share more about the role or the team. Keep it friendly, concise (3-4 sentences), and conversational — not overly formal. Never force a location comparison that doesn't exist."
     }
   ]
 }`;
@@ -246,7 +246,7 @@ INSTRUCTIONS:
 6. If an email is not explicitly known, set email: null and email_type: "unknown"
 7. Prefer 2-5 useful contacts when possible.
 8. The source field must explain why this person was selected.
-9. Outreach messages must follow this structure: (1) mention that you applied for the role at the company in the job location, (2) note that you see the recruiter is based in their location, (3) ask if they are familiar with or involved in this role, (4) if so, ask if they can share more about the role or team. Keep it friendly, concise (3-4 sentences), and conversational.
+9. Outreach messages: (1) mention you applied for the role at the company in the job location, (2) ONLY mention the recruiter's location if it matches or is close to the job location — otherwise skip it, (3) ask if they are familiar with or involved in this role, (4) if so, ask if they can share more about the role or team. Keep it friendly, concise (3-4 sentences), conversational. Never force a location comparison that doesn't fit.
 
 Return ONLY valid JSON in this exact schema:
 {
