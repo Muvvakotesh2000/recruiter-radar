@@ -2,30 +2,20 @@ import { NextResponse } from "next/server";
 import dns from "dns/promises";
 import net from "net";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type SmtpOutcome =
-  | "accepted"    // RCPT TO returned 250
-  | "rejected"    // RCPT TO returned 5xx
-  | "catch_all"   // accepted target AND random address → server accepts everything
-  | "smtp_blocked"// port 25 connection refused / timed out (common on cloud hosts)
-  | "unknown";    // connected but got unexpected response
-
 export type VerifyResult =
-  | "valid"        // SMTP confirmed + not catch-all
-  | "invalid"      // SMTP rejected (550/551/553)
-  | "catch_all"    // domain accepts any address — rank, don't trust
-  | "domain_ok"    // MX exists but SMTP blocked; could still be real
-  | "no_mx"        // domain has no mail servers → definitely bad
+  | "valid"           // SMTP confirmed + not catch-all
+  | "invalid"         // SMTP rejected (550/551)
+  | "catch_all"       // domain accepts any address
+  | "domain_ok"       // MX exists but SMTP check blocked/inconclusive
+  | "no_mx"           // domain has no mail servers
   | "invalid_format";
 
-// ─── Layer 1: MX check ────────────────────────────────────────────────────────
+// ─── Layer 1: DNS MX ─────────────────────────────────────────────────────────
 
 async function getMxHost(domain: string): Promise<string | null> {
   try {
     const records = await dns.resolveMx(domain);
-    if (!records || records.length === 0) return null;
-    // Pick the host with the lowest priority value (highest priority)
+    if (!records?.length) return null;
     records.sort((a, b) => a.priority - b.priority);
     return records[0].exchange;
   } catch {
@@ -33,9 +23,30 @@ async function getMxHost(domain: string): Promise<string | null> {
   }
 }
 
-// ─── Layer 2 + 3: SMTP probe + catch-all detection ───────────────────────────
+// ─── Layer 2+3 via Hunter.io (works on Vercel — no port-25 restriction) ──────
 
-function smtpProbe(email: string, mxHost: string): Promise<SmtpOutcome> {
+async function hunterVerify(email: string, apiKey: string): Promise<VerifyResult> {
+  try {
+    const url = `https://api.hunter.io/v2/email-verifier?email=${encodeURIComponent(email)}&api_key=${apiKey}`;
+    const res = await fetch(url, { next: { revalidate: 0 } });
+    if (!res.ok) return "domain_ok";
+
+    const json = await res.json();
+    const d = json?.data;
+    if (!d) return "domain_ok";
+
+    if (d.accept_all) return "catch_all";
+    if (d.result === "deliverable") return "valid";
+    if (d.result === "undeliverable") return "invalid";
+    return "domain_ok"; // risky / unknown
+  } catch {
+    return "domain_ok";
+  }
+}
+
+// ─── Layer 2+3 via raw SMTP (only works on non-blocked hosts) ─────────────────
+
+function smtpProbe(email: string, mxHost: string): Promise<"valid" | "invalid" | "catch_all" | "domain_ok"> {
   return new Promise((resolve) => {
     const domain = email.split("@")[1];
     const randomEmail = `randchk${Math.random().toString(36).slice(2, 10)}@${domain}`;
@@ -45,91 +56,64 @@ function smtpProbe(email: string, mxHost: string): Promise<SmtpOutcome> {
     let stage = 0;
     let targetAccepted: boolean | null = null;
 
-    const done = (outcome: SmtpOutcome) => {
+    const done = (r: "valid" | "invalid" | "catch_all" | "domain_ok") => {
       if (resolved) return;
       resolved = true;
       clearTimeout(timer);
       try { socket.destroy(); } catch { /* ignore */ }
-      resolve(outcome);
+      resolve(r);
     };
 
-    // Overall timeout — 8 s is generous for a single SMTP conversation
-    const timer = setTimeout(() => done("smtp_blocked"), 8000);
-
+    const timer = setTimeout(() => done("domain_ok"), 8000);
     const socket = net.createConnection({ port: 25, host: mxHost });
 
     socket.on("data", (chunk) => {
       buffer += chunk.toString("ascii");
-
-      let newline: number;
-      while ((newline = buffer.indexOf("\n")) !== -1) {
-        const line = buffer.slice(0, newline).replace(/\r$/, "");
-        buffer = buffer.slice(newline + 1);
+      let nl: number;
+      while ((nl = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, nl).replace(/\r$/, "");
+        buffer = buffer.slice(nl + 1);
 
         const code = line.slice(0, 3);
-        // Multi-line SMTP responses end with "CODE " (space); continuation lines use "CODE-"
-        const isFinal = line.length >= 4 ? line[3] === " " : true;
+        const isFinal = line.length < 4 || line[3] === " ";
         if (!isFinal) continue;
 
         switch (stage) {
-          case 0: // server banner
-            if (code === "220") {
-              stage = 1;
-              socket.write("EHLO verifier.local\r\n");
-            } else {
-              done("unknown");
-            }
+          case 0:
+            if (code === "220") { stage = 1; socket.write("EHLO verifier.local\r\n"); }
+            else done("domain_ok");
             break;
-
-          case 1: // EHLO response
-            if (code === "250") {
-              stage = 2;
-              socket.write("MAIL FROM:<v@verifier.local>\r\n");
-            } else {
-              done("unknown");
-            }
+          case 1:
+            if (code === "250") { stage = 2; socket.write("MAIL FROM:<v@verifier.local>\r\n"); }
+            else done("domain_ok");
             break;
-
-          case 2: // MAIL FROM response
-            if (code === "250") {
-              stage = 3;
-              socket.write(`RCPT TO:<${email}>\r\n`);
-            } else {
-              done("unknown");
-            }
+          case 2:
+            if (code === "250") { stage = 3; socket.write(`RCPT TO:<${email}>\r\n`); }
+            else done("domain_ok");
             break;
-
-          case 3: // RCPT TO (target email) response
+          case 3:
             targetAccepted = code === "250";
             stage = 4;
-            // Layer 3: probe with a random address to detect catch-all
             socket.write(`RCPT TO:<${randomEmail}>\r\n`);
             break;
-
-          case 4: { // RCPT TO (random address) response — catch-all check
+          case 4: {
             const randomAccepted = code === "250";
             socket.write("QUIT\r\n");
-
-            if (!targetAccepted) {
-              done("rejected");
-            } else if (randomAccepted) {
-              // Both real and random accepted → catch-all domain
-              done("catch_all");
-            } else {
-              done("accepted");
-            }
+            if (!targetAccepted) done("invalid");
+            else if (randomAccepted) done("catch_all");
+            else done("valid");
             break;
           }
         }
       }
     });
 
-    socket.on("error", () => done("smtp_blocked"));
-    socket.on("close", () => { if (!resolved) done("unknown"); });
+    socket.on("error", () => done("domain_ok"));
+    socket.on("close", () => { if (!resolved) done("domain_ok"); });
   });
 }
 
-// ─── Route handler ────────────────────────────────────────────────────────────
+// ─── Route ────────────────────────────────────────────────────────────────────
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -139,29 +123,23 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Missing email" }, { status: 400 });
   }
 
-  // Layer 0: format check
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ result: "invalid_format" satisfies VerifyResult });
   }
 
   const domain = email.split("@")[1];
 
-  // Layer 1: MX check
+  // Layer 1: MX
   const mxHost = await getMxHost(domain);
   if (!mxHost) {
     return NextResponse.json({ result: "no_mx" satisfies VerifyResult });
   }
 
-  // Layer 2 + 3: SMTP probe
-  const smtp = await smtpProbe(email, mxHost);
+  // Layer 2+3: prefer Hunter.io (works on Vercel), fall back to raw SMTP
+  const hunterKey = process.env.HUNTER_API_KEY;
+  const result: VerifyResult = hunterKey
+    ? await hunterVerify(email, hunterKey)
+    : await smtpProbe(email, mxHost);
 
-  let result: VerifyResult;
-  switch (smtp) {
-    case "accepted":     result = "valid";      break;
-    case "rejected":     result = "invalid";    break;
-    case "catch_all":    result = "catch_all";  break;
-    default:             result = "domain_ok";  break; // smtp_blocked / unknown → best-effort
-  }
-
-  return NextResponse.json({ result, smtp_detail: smtp });
+  return NextResponse.json({ result });
 }
