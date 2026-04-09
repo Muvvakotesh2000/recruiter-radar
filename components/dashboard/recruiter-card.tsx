@@ -114,7 +114,7 @@ function OutreachSendButton({ message, linkedinUrl }: { message: string; linkedi
 
 // ─── Main card ────────────────────────────────────────────────────────────────
 
-const TOP_N = 4; // patterns shown inline on the card
+const TOP_N = 5;
 
 export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps) {
   const [showOutreach, setShowOutreach] = useState(false);
@@ -134,7 +134,7 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
           pct,
           email: applyPattern(pattern, firstName, lastName, companyDomain),
         }))
-        .filter(({ email }) => email && email !== lead.email)
+        .filter(({ email }) => Boolean(email))
     : [];
 
   const topCandidates = allCandidates.slice(0, TOP_N);
@@ -192,54 +192,49 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
             </div>
           )}
 
-          {/* Top email candidates — dropdown */}
+          {/* Top email candidates — collapsible dropdown */}
           {topCandidates.length > 0 && (
-            <div className="relative">
-              {/* Trigger row — shows best candidate */}
-              <div className="flex items-center gap-2">
-                {!lead.email && <Mail className="w-4 h-4 text-muted-foreground/50 flex-shrink-0" />}
-                {lead.email && <span className="w-4 flex-shrink-0" />}
-                <button
-                  onClick={() => setShowEmailDropdown((v) => !v)}
-                  className="flex items-center gap-1.5 flex-1 min-w-0 text-left group/dd"
-                  title="Show all email pattern candidates"
-                >
-                  <span className="text-xs font-mono text-foreground/80 flex-1 truncate">
-                    {topCandidates[0].email}
-                  </span>
-                  <span className={`text-xs font-medium flex-shrink-0 tabular-nums ${
-                    topCandidates[0].pct >= 20 ? "text-emerald-400" : topCandidates[0].pct >= 5 ? "text-amber-400" : "text-muted-foreground/40"
-                  }`}>
-                    {topCandidates[0].pct > 0 ? `${topCandidates[0].pct}%` : "<1%"}
-                  </span>
-                  <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground/50 flex-shrink-0 transition-transform ${showEmailDropdown ? "rotate-180" : ""}`} />
-                </button>
-                <CopyButton text={topCandidates[0].email} label={topCandidates[0].email} />
-              </div>
+            <div>
+              <button
+                onClick={() => setShowEmailDropdown((v) => !v)}
+                className="flex items-center gap-2 text-xs font-medium text-violet-400/80 hover:text-violet-300 transition-colors"
+              >
+                <Mail className="w-3.5 h-3.5 flex-shrink-0" />
+                View Possible Emails Found
+                <ChevronDown className={`w-3.5 h-3.5 flex-shrink-0 transition-transform ${showEmailDropdown ? "rotate-180" : ""}`} />
+              </button>
 
-              {/* Dropdown list — remaining top candidates */}
-              {showEmailDropdown && topCandidates.length > 1 && (
+              {showEmailDropdown && (
                 <motion.div
-                  initial={{ opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.15 }}
-                  className="mt-1 ml-6 rounded-lg border border-border/50 bg-card/95 backdrop-blur-sm shadow-lg overflow-hidden z-10"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  transition={{ duration: 0.2 }}
+                  className="mt-2 rounded-lg border border-border/50 bg-secondary/20 overflow-hidden"
                 >
-                  {topCandidates.slice(1).map(({ email, label, pct }) => (
+                  {topCandidates.map(({ email, label, pct }) => {
+                    const isConfirmed = lead.email === email;
+                    return (
                     <div
                       key={email}
-                      className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-secondary/40 transition-colors border-b border-border/30 last:border-0"
+                      className={`flex items-center gap-2 px-2.5 py-2 hover:bg-secondary/40 transition-colors border-b border-border/30 last:border-0 ${isConfirmed ? "bg-emerald-500/5" : ""}`}
                     >
-                      <span className="text-xs text-muted-foreground/40 font-mono w-20 flex-shrink-0">{label}</span>
-                      <span className="text-xs font-mono text-foreground/75 flex-1 truncate">{email}</span>
-                      <span className={`text-xs font-medium flex-shrink-0 tabular-nums ${
-                        pct >= 20 ? "text-emerald-400" : pct >= 5 ? "text-amber-400" : "text-muted-foreground/40"
-                      }`}>
-                        {pct > 0 ? `${pct}%` : "<1%"}
-                      </span>
+                      <span className="text-xs text-muted-foreground/50 font-mono w-20 flex-shrink-0">{label}</span>
+                      <span className={`text-xs font-mono flex-1 truncate ${isConfirmed ? "text-emerald-400" : "text-foreground/80"}`}>{email}</span>
+                      {isConfirmed
+                        ? <span className="text-xs text-emerald-400 font-medium flex-shrink-0">✓ confirmed</span>
+                        : <span
+                            title={`${pct > 0 ? pct + "%" : "<1%"} of business domains use this pattern`}
+                            className={`text-xs font-medium flex-shrink-0 tabular-nums ${
+                              pct >= 20 ? "text-emerald-400" : pct >= 5 ? "text-amber-400" : "text-muted-foreground/40"
+                            }`}
+                          >
+                            {pct > 0 ? `${pct}%` : "<1%"}
+                          </span>
+                      }
                       <CopyButton text={email} label={email} />
                     </div>
-                  ))}
+                    );
+                  })}
                 </motion.div>
               )}
             </div>
