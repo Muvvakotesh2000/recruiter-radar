@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Space_Grotesk } from "next/font/google";
 import { ThemeProvider } from "@/components/shared/theme-provider";
 import { Toaster } from "sonner";
+import Script from "next/script";
 import "./globals.css";
 
 const inter = Inter({
@@ -62,6 +63,20 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${inter.variable} ${spaceGrotesk.variable}`}
     >
+      <head>
+        <Script
+          src="https://www.googletagmanager.com/gtag/js?id=G-2P2G7P4P6S"
+          strategy="afterInteractive"
+        />
+        <Script id="google-analytics" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'G-2P2G7P4P6S');
+          `}
+        </Script>
+      </head>
       <body className="min-h-screen bg-background text-foreground antialiased">
         <ThemeProvider
           attribute="class"
