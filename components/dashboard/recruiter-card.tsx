@@ -18,14 +18,8 @@ import {
   FlaskConical,
   Send,
   AlertCircle,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  HelpCircle,
 } from "lucide-react";
-import type { BatchResult } from "@/app/api/verify-domain/route";
 import type { RecruiterLead } from "@/types/database";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -43,15 +37,10 @@ interface RecruiterCardProps {
   companyDomain?: string | null;
 }
 
-function CopyButton({
-  text,
-  label,
-}: {
-  text: string;
-  label: string;
-}) {
-  const [copied, setCopied] = useState(false);
+// ─── Copy button ──────────────────────────────────────────────────────────────
 
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false);
   async function handleCopy() {
     const ok = await copyToClipboard(text);
     if (ok) {
@@ -62,45 +51,34 @@ function CopyButton({
       toast.error("Failed to copy");
     }
   }
-
   return (
     <button
       onClick={handleCopy}
       className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
       title={`Copy ${label}`}
     >
-      {copied ? (
-        <Check className="w-3.5 h-3.5 text-emerald-400" />
-      ) : (
-        <Copy className="w-3.5 h-3.5" />
-      )}
+      {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
     </button>
   );
 }
 
-// LinkedIn connection request note max length
-const LI_NOTE_LIMIT = 300;
+// ─── LinkedIn URL normaliser ──────────────────────────────────────────────────
 
-/** Normalise a LinkedIn profile URL — ensure it ends cleanly */
 function normaliseLinkedInUrl(url: string): string {
   try {
     const u = new URL(url);
-    // Keep only origin + /in/{vanity}, strip query/hash
     const match = u.pathname.match(/^(\/in\/[^/]+)/);
     if (match) return `https://www.linkedin.com${match[1]}`;
   } catch { /* fall through */ }
   return url;
 }
 
-function OutreachSendButton({
-  message,
-  linkedinUrl,
-}: {
-  message: string;
-  linkedinUrl: string | null;
-}) {
-  const [copied, setCopied] = useState(false);
+// ─── Outreach send button ─────────────────────────────────────────────────────
 
+const LI_NOTE_LIMIT = 300;
+
+function OutreachSendButton({ message, linkedinUrl }: { message: string; linkedinUrl: string | null }) {
+  const [copied, setCopied] = useState(false);
   const connectionNote = message.length > LI_NOTE_LIMIT
     ? message.slice(0, LI_NOTE_LIMIT - 1).trimEnd() + "…"
     : message;
@@ -108,23 +86,15 @@ function OutreachSendButton({
 
   async function handleSend(e: React.MouseEvent) {
     e.stopPropagation();
-    if (!linkedinUrl) {
-      toast.error("No LinkedIn profile URL for this recruiter");
-      return;
-    }
-    // Copy first
+    if (!linkedinUrl) { toast.error("No LinkedIn profile URL for this recruiter"); return; }
     await copyToClipboard(isTruncated ? connectionNote : message);
-    // Show toast before opening tab — browser shifts focus on window.open so toast must render first
     toast.success(
       isTruncated
         ? `Message copied (trimmed to ${LI_NOTE_LIMIT} chars). Click Connect → Add a note → Ctrl+V`
         : "Message copied! Click Message or Connect → Add a note → Ctrl+V",
       { duration: 7000 }
     );
-    // Small delay so the toast paints, then open LinkedIn profile
-    setTimeout(() => {
-      window.open(normaliseLinkedInUrl(linkedinUrl), "_blank", "noopener,noreferrer");
-    }, 300);
+    setTimeout(() => window.open(normaliseLinkedInUrl(linkedinUrl), "_blank", "noopener,noreferrer"), 300);
     setCopied(true);
     setTimeout(() => setCopied(false), 3000);
   }
@@ -136,74 +106,38 @@ function OutreachSendButton({
       title={linkedinUrl ? "Copy message & open LinkedIn" : "No LinkedIn URL available"}
       className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 hover:border-blue-500/40 transition-all text-blue-400 hover:text-blue-300 disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
     >
-      {copied ? (
-        <Check className="w-3 h-3 text-emerald-400" />
-      ) : (
-        <Send className="w-3 h-3" />
-      )}
+      {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Send className="w-3 h-3" />}
       Send
     </button>
   );
 }
 
+// ─── Main card ────────────────────────────────────────────────────────────────
+
+const TOP_N = 4; // patterns shown inline on the card
 
 export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps) {
   const [showOutreach, setShowOutreach] = useState(false);
   const [showPatterns, setShowPatterns] = useState(false);
-  const [verifying, setVerifying] = useState(false);
-  const [verifyResult, setVerifyResult] = useState<BatchResult | null>(null);
+
   const confidenceColors = getConfidenceColor(lead.confidence_level);
   const emailTypeColors = getEmailTypeColor(lead.email_type);
 
   const { first: firstName, last: lastName } = splitName(lead.full_name);
 
-  const emailCandidates = companyDomain
-    ? COMMON_PATTERNS.map(({ pattern, label, pct }) => ({
-        label,
-        pct,
-        email: applyPattern(pattern, firstName, lastName, companyDomain),
-      })).filter(({ email }) => email && email !== lead.email)
+  // All generated candidates, sorted by prevalence (COMMON_PATTERNS already sorted)
+  const allCandidates = companyDomain
+    ? COMMON_PATTERNS
+        .map(({ pattern, label, pct }) => ({
+          label,
+          pct,
+          email: applyPattern(pattern, firstName, lastName, companyDomain),
+        }))
+        .filter(({ email }) => email && email !== lead.email)
     : [];
 
-  async function handleVerifyAll(e: React.MouseEvent) {
-    e.stopPropagation();
-    if (verifying || !companyDomain || emailCandidates.length === 0) return;
-    setVerifying(true);
-    try {
-      const res = await fetch("/api/verify-domain", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          domain: companyDomain,
-          emails: emailCandidates.map((c) => c.email),
-          first_name: firstName,
-          last_name: lastName,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error("Verification failed", { description: data.error });
-        return;
-      }
-      const result = data as BatchResult;
-      setVerifyResult(result);
-      if (!result.mx_found) {
-        toast.error("Domain has no mail servers — all patterns invalid");
-      } else if (result.smtp_blocked) {
-        toast.warning("Validation worker unreachable — deploy the worker to get real results");
-      } else if (result.is_catch_all) {
-        toast.info("Catch-all domain — any address is accepted, showing pattern ranking");
-      } else {
-        const valid = result.results.filter((r) => r.status === "verified").length;
-        toast.success(`Found ${valid} valid email${valid !== 1 ? "s" : ""}`);
-      }
-    } catch {
-      toast.error("Could not reach validation worker");
-    } finally {
-      setVerifying(false);
-    }
-  }
-
+  const topCandidates = allCandidates.slice(0, TOP_N);
+  const moreCandidates = allCandidates.slice(TOP_N);
 
   return (
     <motion.div
@@ -212,32 +146,21 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
       transition={{ delay: index * 0.08, duration: 0.4, ease: "easeOut" }}
       className="glass rounded-xl border border-border/50 hover:border-violet-500/25 transition-all duration-300 overflow-hidden group"
     >
-      {/* Top gradient accent */}
       <div className="h-px bg-gradient-to-r from-transparent via-violet-500/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
 
       <div className="p-5">
         {/* Header */}
         <div className="flex items-start gap-3">
           <Avatar className="h-11 w-11 ring-2 ring-border group-hover:ring-violet-500/30 transition-all flex-shrink-0">
-            <AvatarFallback className="text-sm">
-              {getInitials(lead.full_name)}
-            </AvatarFallback>
+            <AvatarFallback className="text-sm">{getInitials(lead.full_name)}</AvatarFallback>
           </Avatar>
-
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <h4 className="font-semibold font-display text-foreground truncate">
-                  {lead.full_name}
-                </h4>
-                <p className="text-sm text-muted-foreground truncate">
-                  {lead.recruiter_title}
-                </p>
+                <h4 className="font-semibold font-display text-foreground truncate">{lead.full_name}</h4>
+                <p className="text-sm text-muted-foreground truncate">{lead.recruiter_title}</p>
               </div>
-              {/* Confidence badge */}
-              <span
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 border ${confidenceColors.bg} ${confidenceColors.text} ${confidenceColors.border}`}
-              >
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 border ${confidenceColors.bg} ${confidenceColors.text} ${confidenceColors.border}`}>
                 <Shield className="w-3 h-3" />
                 {lead.confidence_level}
               </span>
@@ -255,30 +178,50 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
 
         {/* Contact info */}
         <div className="mt-4 space-y-2.5">
-          {/* Email */}
-          {lead.email ? (
+
+          {/* Confirmed / Hunter email (if exists) */}
+          {lead.email && (
             <div className="flex items-center gap-2">
               <Mail className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-              <span className="text-sm text-foreground/90 flex-1 truncate font-mono text-xs">
-                {lead.email}
-              </span>
-              <span
-                className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs border ${emailTypeColors.bg} ${emailTypeColors.text} ${emailTypeColors.border} flex-shrink-0`}
-              >
-                {lead.email_type === "verified"
-                  ? "Confirmed"
-                  : lead.email_type === "estimated"
-                  ? "Via pattern"
-                  : lead.email_type}
+              <span className="text-xs font-mono text-foreground/90 flex-1 truncate">{lead.email}</span>
+              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs border flex-shrink-0 ${emailTypeColors.bg} ${emailTypeColors.text} ${emailTypeColors.border}`}>
+                {lead.email_type === "verified" ? "Confirmed" : lead.email_type === "estimated" ? "Via pattern" : lead.email_type}
               </span>
               <CopyButton text={lead.email} label="Email" />
             </div>
-          ) : (
+          )}
+
+          {/* Top 4 pattern candidates shown inline */}
+          {topCandidates.length > 0 && (
+            <div className="space-y-1.5">
+              {!lead.email && (
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Mail className="w-3.5 h-3.5 text-muted-foreground/50 flex-shrink-0" />
+                  <span className="text-xs text-muted-foreground/60">Top email guesses</span>
+                </div>
+              )}
+              {topCandidates.map(({ email, label, pct }) => (
+                <div key={email} className="flex items-center gap-2 pl-6">
+                  <span className="text-xs font-mono text-foreground/80 flex-1 truncate">{email}</span>
+                  <span
+                    title={`${label} — ${pct > 0 ? pct + "%" : "<1%"} of business domains use this pattern`}
+                    className={`text-xs font-medium flex-shrink-0 tabular-nums ${
+                      pct >= 20 ? "text-emerald-400" : pct >= 5 ? "text-amber-400" : "text-muted-foreground/40"
+                    }`}
+                  >
+                    {pct > 0 ? `${pct}%` : "<1%"}
+                  </span>
+                  <CopyButton text={email} label={email} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* No email at all */}
+          {!lead.email && topCandidates.length === 0 && (
             <div className="flex items-center gap-2">
               <Mail className="w-4 h-4 text-muted-foreground/40 flex-shrink-0" />
-              <span className="text-xs text-muted-foreground/50 italic">
-                No email found
-              </span>
+              <span className="text-xs text-muted-foreground/50 italic">No email found</span>
             </div>
           )}
 
@@ -310,15 +253,13 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
           {/* Source */}
           <div className="flex items-center gap-2">
             <User className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-            <span className="text-xs text-muted-foreground truncate">
-              Source: {lead.source}
-            </span>
+            <span className="text-xs text-muted-foreground truncate">Source: {lead.source}</span>
           </div>
         </div>
 
         <Separator className="my-4" />
 
-        {/* Outreach message row — Copy + Send always visible */}
+        {/* Outreach message */}
         <div>
           <div className="flex items-center gap-2">
             <button
@@ -327,20 +268,12 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
             >
               <MessageSquare className="w-4 h-4 flex-shrink-0" />
               <span className="truncate">Outreach Message</span>
-              {showOutreach ? (
-                <ChevronUp className="w-4 h-4 flex-shrink-0" />
-              ) : (
-                <ChevronDown className="w-4 h-4 flex-shrink-0" />
-              )}
+              {showOutreach ? <ChevronUp className="w-4 h-4 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 flex-shrink-0" />}
             </button>
-
             {lead.outreach_message && (
               <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                 <CopyButton text={lead.outreach_message} label="Outreach message" />
-                <OutreachSendButton
-                  message={lead.outreach_message}
-                  linkedinUrl={lead.linkedin_url}
-                />
+                <OutreachSendButton message={lead.outreach_message} linkedinUrl={lead.linkedin_url} />
               </div>
             )}
           </div>
@@ -349,7 +282,6 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.2 }}
               className="mt-3"
             >
@@ -368,123 +300,45 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
           )}
         </div>
 
-        {/* Email pattern candidates */}
-        {emailCandidates.length > 0 && (
+        {/* Remaining email patterns */}
+        {moreCandidates.length > 0 && (
           <>
             <Separator className="my-4" />
             <div>
-              {/* Header */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setShowPatterns(!showPatterns)}
-                  className="flex items-center gap-2 text-sm font-medium text-amber-400 hover:text-amber-300 transition-colors flex-1 min-w-0"
-                >
-                  <FlaskConical className="w-4 h-4 flex-shrink-0" />
-                  <span className="flex-1 text-left truncate">
-                    Email Patterns
-                    <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                      ({emailCandidates.length})
-                    </span>
+              <button
+                onClick={() => setShowPatterns(!showPatterns)}
+                className="flex items-center gap-2 text-sm font-medium text-amber-400/70 hover:text-amber-300 transition-colors w-full"
+              >
+                <FlaskConical className="w-4 h-4" />
+                <span className="flex-1 text-left">
+                  More Patterns
+                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                    ({moreCandidates.length} more)
                   </span>
-                  {showPatterns ? <ChevronUp className="w-4 h-4 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 flex-shrink-0" />}
-                </button>
-                <button
-                  onClick={handleVerifyAll}
-                  disabled={verifying}
-                  className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border transition-all flex-shrink-0 disabled:opacity-50 border-amber-500/30 text-amber-400/80 hover:text-amber-300 hover:border-amber-400/50 hover:bg-amber-500/5"
-                  title="Verify via SMTP worker — syntax → MX → SMTP → catch-all"
-                >
-                  {verifying
-                    ? <Loader2 className="w-3 h-3 animate-spin" />
-                    : <CheckCircle2 className="w-3 h-3" />}
-                  {verifying ? "Checking…" : verifyResult ? "Re-verify" : "Verify All"}
-                </button>
-              </div>
+                </span>
+                {showPatterns ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
 
               {showPatterns && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
                   transition={{ duration: 0.2 }}
-                  className="mt-3 space-y-1.5"
+                  className="mt-2 space-y-1"
                 >
-                  {/* Status banner after verification */}
-                  {verifyResult && (
-                    <div className={`px-2.5 py-1.5 rounded-md text-xs border mb-1 ${
-                      !verifyResult.mx_found
-                        ? "bg-red-500/10 border-red-500/20 text-red-400"
-                        : verifyResult.is_catch_all
-                        ? "bg-amber-500/10 border-amber-500/20 text-amber-400"
-                        : verifyResult.smtp_blocked
-                        ? "bg-secondary/60 border-border/50 text-muted-foreground"
-                        : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                    }`}>
-                      {!verifyResult.mx_found && "No mail servers on this domain"}
-                      {verifyResult.mx_found && verifyResult.is_catch_all && "Catch-all domain — server accepts any address, ranked by likelihood"}
-                      {verifyResult.mx_found && verifyResult.smtp_blocked && !verifyResult.is_catch_all && "Worker unreachable — deploy validation-worker to get real results"}
-                      {verifyResult.mx_found && !verifyResult.is_catch_all && !verifyResult.smtp_blocked && "SMTP check complete"}
+                  {moreCandidates.map(({ label, email, pct }) => (
+                    <div
+                      key={email}
+                      className="flex items-center gap-2 bg-secondary/20 rounded-md px-2.5 py-1.5 border border-border/30"
+                    >
+                      <span className="text-xs text-muted-foreground/40 font-mono w-20 flex-shrink-0">{label}</span>
+                      <span className="text-xs font-mono text-foreground/60 flex-1 truncate">{email}</span>
+                      <span className="text-xs text-muted-foreground/40 flex-shrink-0 tabular-nums">
+                        {pct > 0 ? `${pct}%` : "<1%"}
+                      </span>
+                      <CopyButton text={email} label={email} />
                     </div>
-                  )}
-
-                  {emailCandidates.map(({ label, email, pct }) => {
-                    const result = verifyResult?.results.find((r) => r.email === email);
-                    const verified = !verifyResult || verifyResult.smtp_blocked || verifyResult.is_catch_all;
-
-                    return (
-                      <div
-                        key={email}
-                        className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 border transition-all ${
-                          result?.status === "verified"
-                            ? "bg-emerald-500/10 border-emerald-500/30"
-                            : result?.status === "invalid"
-                            ? "bg-secondary/20 border-border/30 opacity-40"
-                            : "bg-secondary/30 border-border/40"
-                        }`}
-                      >
-                        <span className="text-xs text-muted-foreground/50 font-mono w-20 flex-shrink-0">
-                          {label}
-                        </span>
-                        <span className="text-xs font-mono text-foreground/75 flex-1 truncate">
-                          {email}
-                        </span>
-
-                        {/* SMTP result badge */}
-                        {result?.status === "verified" && (
-                          <span className="flex items-center gap-1 text-xs text-emerald-400 flex-shrink-0 font-medium">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> Valid
-                          </span>
-                        )}
-                        {result?.status === "invalid" && (
-                          <span className="flex items-center gap-1 text-xs text-red-400/70 flex-shrink-0">
-                            <XCircle className="w-3.5 h-3.5" /> Invalid
-                          </span>
-                        )}
-                        {result?.status === "unknown" && (
-                          <span className="flex items-center gap-1 text-xs text-muted-foreground/50 flex-shrink-0">
-                            <HelpCircle className="w-3.5 h-3.5" /> Unknown
-                          </span>
-                        )}
-
-                        {/* Fallback % when no SMTP result or catch-all/blocked */}
-                        {verified && !result?.status && (
-                          <span className={`text-xs font-medium flex-shrink-0 tabular-nums ${
-                            pct >= 20 ? "text-emerald-400" : pct >= 5 ? "text-amber-400" : "text-muted-foreground/50"
-                          }`}>
-                            {pct > 0 ? `${pct}%` : "<1%"}
-                          </span>
-                        )}
-                        {(verifyResult?.is_catch_all || verifyResult?.smtp_blocked) && (
-                          <span className={`text-xs font-medium flex-shrink-0 tabular-nums ${
-                            pct >= 20 ? "text-emerald-400" : pct >= 5 ? "text-amber-400" : "text-muted-foreground/50"
-                          }`}>
-                            {pct > 0 ? `${pct}%` : "<1%"}
-                          </span>
-                        )}
-
-                        <CopyButton text={email} label={email} />
-                      </div>
-                    );
-                  })}
+                  ))}
                 </motion.div>
               )}
             </div>
