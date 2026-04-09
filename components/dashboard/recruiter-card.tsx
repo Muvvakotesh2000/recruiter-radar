@@ -180,13 +180,13 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
         {/* Contact info */}
         <div className="mt-4 space-y-2.5">
 
-          {/* Confirmed / Hunter email (if exists) */}
-          {lead.email && (
+          {/* Confirmed / Hunter email only (not pattern-estimated) */}
+          {lead.email && lead.email_type === "verified" && (
             <div className="flex items-center gap-2">
               <Mail className="w-4 h-4 text-muted-foreground flex-shrink-0" />
               <span className="text-xs font-mono text-foreground/90 flex-1 truncate">{lead.email}</span>
               <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs border flex-shrink-0 ${emailTypeColors.bg} ${emailTypeColors.text} ${emailTypeColors.border}`}>
-                {lead.email_type === "verified" ? "Confirmed" : lead.email_type === "estimated" ? "Via pattern" : lead.email_type}
+                Confirmed
               </span>
               <CopyButton text={lead.email} label="Email" />
             </div>
@@ -211,30 +211,15 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
                   transition={{ duration: 0.2 }}
                   className="mt-2 rounded-lg border border-border/50 bg-secondary/20 overflow-hidden"
                 >
-                  {topCandidates.map(({ email, label, pct }) => {
-                    const isConfirmed = lead.email === email;
-                    return (
+                  {topCandidates.map(({ email }) => (
                     <div
                       key={email}
-                      className={`flex items-center gap-2 px-2.5 py-2 hover:bg-secondary/40 transition-colors border-b border-border/30 last:border-0 ${isConfirmed ? "bg-emerald-500/5" : ""}`}
+                      className="flex items-center gap-2 px-2.5 py-2 hover:bg-secondary/40 transition-colors border-b border-border/30 last:border-0"
                     >
-                      <span className="text-xs text-muted-foreground/50 font-mono w-20 flex-shrink-0">{label}</span>
-                      <span className={`text-xs font-mono flex-1 truncate ${isConfirmed ? "text-emerald-400" : "text-foreground/80"}`}>{email}</span>
-                      {isConfirmed
-                        ? <span className="text-xs text-emerald-400 font-medium flex-shrink-0">✓ confirmed</span>
-                        : <span
-                            title={`${pct > 0 ? pct + "%" : "<1%"} of business domains use this pattern`}
-                            className={`text-xs font-medium flex-shrink-0 tabular-nums ${
-                              pct >= 20 ? "text-emerald-400" : pct >= 5 ? "text-amber-400" : "text-muted-foreground/40"
-                            }`}
-                          >
-                            {pct > 0 ? `${pct}%` : "<1%"}
-                          </span>
-                      }
+                      <span className="text-xs font-mono text-foreground/80 flex-1 truncate">{email}</span>
                       <CopyButton text={email} label={email} />
                     </div>
-                    );
-                  })}
+                  ))}
                 </motion.div>
               )}
             </div>
