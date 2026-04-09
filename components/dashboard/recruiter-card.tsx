@@ -18,7 +18,12 @@ import {
   FlaskConical,
   Send,
   AlertCircle,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  HelpCircle,
 } from "lucide-react";
+import type { BatchResult } from "@/app/api/verify-domain/route";
 import type { RecruiterLead } from "@/types/database";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -145,19 +150,59 @@ function OutreachSendButton({
 export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps) {
   const [showOutreach, setShowOutreach] = useState(false);
   const [showPatterns, setShowPatterns] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<BatchResult | null>(null);
   const confidenceColors = getConfidenceColor(lead.confidence_level);
   const emailTypeColors = getEmailTypeColor(lead.email_type);
 
+  const { first: firstName, last: lastName } = splitName(lead.full_name);
+
   const emailCandidates = companyDomain
-    ? (() => {
-        const { first, last } = splitName(lead.full_name);
-        return COMMON_PATTERNS.map(({ pattern, label, pct }) => ({
-          label,
-          pct,
-          email: applyPattern(pattern, first, last, companyDomain),
-        })).filter(({ email }) => email && email !== lead.email);
-      })()
+    ? COMMON_PATTERNS.map(({ pattern, label, pct }) => ({
+        label,
+        pct,
+        email: applyPattern(pattern, firstName, lastName, companyDomain),
+      })).filter(({ email }) => email && email !== lead.email)
     : [];
+
+  async function handleVerifyAll(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (verifying || !companyDomain || emailCandidates.length === 0) return;
+    setVerifying(true);
+    try {
+      const res = await fetch("/api/verify-domain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          domain: companyDomain,
+          emails: emailCandidates.map((c) => c.email),
+          first_name: firstName,
+          last_name: lastName,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error("Verification failed", { description: data.error });
+        return;
+      }
+      const result = data as BatchResult;
+      setVerifyResult(result);
+      if (!result.mx_found) {
+        toast.error("Domain has no mail servers — all patterns invalid");
+      } else if (result.smtp_blocked) {
+        toast.warning("Validation worker unreachable — deploy the worker to get real results");
+      } else if (result.is_catch_all) {
+        toast.info("Catch-all domain — any address is accepted, showing pattern ranking");
+      } else {
+        const valid = result.results.filter((r) => r.status === "verified").length;
+        toast.success(`Found ${valid} valid email${valid !== 1 ? "s" : ""}`);
+      }
+    } catch {
+      toast.error("Could not reach validation worker");
+    } finally {
+      setVerifying(false);
+    }
+  }
 
 
   return (
@@ -323,41 +368,78 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
           )}
         </div>
 
-        {/* All email pattern candidates */}
+        {/* Email pattern candidates */}
         {emailCandidates.length > 0 && (
           <>
             <Separator className="my-4" />
             <div>
-              <button
-                onClick={() => setShowPatterns(!showPatterns)}
-                className="flex items-center gap-2 text-sm font-medium text-amber-400 hover:text-amber-300 transition-colors w-full"
-              >
-                <FlaskConical className="w-4 h-4" />
-                <span className="flex-1 text-left">
-                  Email Patterns
-                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                    ({emailCandidates.length} patterns)
+              {/* Header */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowPatterns(!showPatterns)}
+                  className="flex items-center gap-2 text-sm font-medium text-amber-400 hover:text-amber-300 transition-colors flex-1 min-w-0"
+                >
+                  <FlaskConical className="w-4 h-4 flex-shrink-0" />
+                  <span className="flex-1 text-left truncate">
+                    Email Patterns
+                    <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                      ({emailCandidates.length})
+                    </span>
                   </span>
-                </span>
-                {showPatterns ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-              </button>
+                  {showPatterns ? <ChevronUp className="w-4 h-4 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 flex-shrink-0" />}
+                </button>
+                <button
+                  onClick={handleVerifyAll}
+                  disabled={verifying}
+                  className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border transition-all flex-shrink-0 disabled:opacity-50 border-amber-500/30 text-amber-400/80 hover:text-amber-300 hover:border-amber-400/50 hover:bg-amber-500/5"
+                  title="Verify via SMTP worker — syntax → MX → SMTP → catch-all"
+                >
+                  {verifying
+                    ? <Loader2 className="w-3 h-3 animate-spin" />
+                    : <CheckCircle2 className="w-3 h-3" />}
+                  {verifying ? "Checking…" : verifyResult ? "Re-verify" : "Verify All"}
+                </button>
+              </div>
 
               {showPatterns && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
                   transition={{ duration: 0.2 }}
-                  className="mt-3"
+                  className="mt-3 space-y-1.5"
                 >
-                  <p className="text-xs text-muted-foreground/60 mb-2 italic">
-                    Ranked by real-world prevalence — try top candidates first
-                  </p>
-                  <div className="space-y-1.5">
-                    {emailCandidates.map(({ label, email, pct }) => (
+                  {/* Status banner after verification */}
+                  {verifyResult && (
+                    <div className={`px-2.5 py-1.5 rounded-md text-xs border mb-1 ${
+                      !verifyResult.mx_found
+                        ? "bg-red-500/10 border-red-500/20 text-red-400"
+                        : verifyResult.is_catch_all
+                        ? "bg-amber-500/10 border-amber-500/20 text-amber-400"
+                        : verifyResult.smtp_blocked
+                        ? "bg-secondary/60 border-border/50 text-muted-foreground"
+                        : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                    }`}>
+                      {!verifyResult.mx_found && "No mail servers on this domain"}
+                      {verifyResult.mx_found && verifyResult.is_catch_all && "Catch-all domain — server accepts any address, ranked by likelihood"}
+                      {verifyResult.mx_found && verifyResult.smtp_blocked && !verifyResult.is_catch_all && "Worker unreachable — deploy validation-worker to get real results"}
+                      {verifyResult.mx_found && !verifyResult.is_catch_all && !verifyResult.smtp_blocked && "SMTP check complete"}
+                    </div>
+                  )}
+
+                  {emailCandidates.map(({ label, email, pct }) => {
+                    const result = verifyResult?.results.find((r) => r.email === email);
+                    const verified = !verifyResult || verifyResult.smtp_blocked || verifyResult.is_catch_all;
+
+                    return (
                       <div
                         key={email}
-                        className="flex items-center gap-2 bg-secondary/30 rounded-md px-2.5 py-1.5 border border-border/40"
+                        className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 border transition-all ${
+                          result?.status === "verified"
+                            ? "bg-emerald-500/10 border-emerald-500/30"
+                            : result?.status === "invalid"
+                            ? "bg-secondary/20 border-border/30 opacity-40"
+                            : "bg-secondary/30 border-border/40"
+                        }`}
                       >
                         <span className="text-xs text-muted-foreground/50 font-mono w-20 flex-shrink-0">
                           {label}
@@ -365,18 +447,44 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
                         <span className="text-xs font-mono text-foreground/75 flex-1 truncate">
                           {email}
                         </span>
-                        <span
-                          title="Prevalence across business email domains"
-                          className={`text-xs font-medium flex-shrink-0 tabular-nums ${
+
+                        {/* SMTP result badge */}
+                        {result?.status === "verified" && (
+                          <span className="flex items-center gap-1 text-xs text-emerald-400 flex-shrink-0 font-medium">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Valid
+                          </span>
+                        )}
+                        {result?.status === "invalid" && (
+                          <span className="flex items-center gap-1 text-xs text-red-400/70 flex-shrink-0">
+                            <XCircle className="w-3.5 h-3.5" /> Invalid
+                          </span>
+                        )}
+                        {result?.status === "unknown" && (
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground/50 flex-shrink-0">
+                            <HelpCircle className="w-3.5 h-3.5" /> Unknown
+                          </span>
+                        )}
+
+                        {/* Fallback % when no SMTP result or catch-all/blocked */}
+                        {verified && !result?.status && (
+                          <span className={`text-xs font-medium flex-shrink-0 tabular-nums ${
                             pct >= 20 ? "text-emerald-400" : pct >= 5 ? "text-amber-400" : "text-muted-foreground/50"
-                          }`}
-                        >
-                          {pct > 0 ? `${pct}%` : "<1%"}
-                        </span>
+                          }`}>
+                            {pct > 0 ? `${pct}%` : "<1%"}
+                          </span>
+                        )}
+                        {(verifyResult?.is_catch_all || verifyResult?.smtp_blocked) && (
+                          <span className={`text-xs font-medium flex-shrink-0 tabular-nums ${
+                            pct >= 20 ? "text-emerald-400" : pct >= 5 ? "text-amber-400" : "text-muted-foreground/50"
+                          }`}>
+                            {pct > 0 ? `${pct}%` : "<1%"}
+                          </span>
+                        )}
+
                         <CopyButton text={email} label={email} />
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </motion.div>
               )}
             </div>
