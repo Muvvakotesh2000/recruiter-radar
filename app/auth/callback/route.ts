@@ -32,8 +32,22 @@ export async function GET(request: Request) {
       }
     );
 
-    await supabase.auth.exchangeCodeForSession(code);
+      await supabase.auth.exchangeCodeForSession(code);
   }
 
-  return NextResponse.redirect(new URL("/", request.url));
+  const next = requestUrl.searchParams.get("next") || "/dashboard";
+  const destination = next.startsWith("/") ? next : "/dashboard";
+
+  // Use a client-side replace so neither the callback URL nor Google's page
+  // remains in browser history — pressing back skips straight past the OAuth flow.
+  return new NextResponse(
+    `<!doctype html><html><head>
+<meta http-equiv="refresh" content="0;url=${destination}">
+<script>window.location.replace(${JSON.stringify(destination)})</script>
+</head><body></body></html>`,
+    {
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    }
+  );
 }

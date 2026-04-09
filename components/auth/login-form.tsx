@@ -49,17 +49,22 @@ export function LoginForm() {
 
   async function handleGoogleSignIn() {
     setGoogleLoading(true);
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
         redirectTo: `${window.location.origin}/auth/callback?next=${redirectTo}`,
+        skipBrowserRedirect: true, // get the URL without auto-redirecting
       },
     });
 
-    if (error) {
-      toast.error("Google sign in failed", { description: error.message });
+    if (error || !data?.url) {
+      toast.error("Google sign in failed", { description: error?.message });
       setGoogleLoading(false);
+      return;
     }
+
+    // Replace the current history entry so pressing back never returns to /login or google.com
+    window.location.replace(data.url);
   }
 
   return (
