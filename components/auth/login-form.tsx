@@ -53,7 +53,7 @@ export function LoginForm() {
       provider: "google",
       options: {
         redirectTo: `${window.location.origin}/auth/callback?next=${redirectTo}`,
-        skipBrowserRedirect: true, // get the URL without auto-redirecting
+        skipBrowserRedirect: true,
       },
     });
 
@@ -63,8 +63,43 @@ export function LoginForm() {
       return;
     }
 
-    // Replace the current history entry so pressing back never returns to /login or google.com
-    window.location.replace(data.url);
+    // Open OAuth in a popup so Google's pages never enter the main window's history.
+    const w = 500, h = 620;
+    const left = Math.max(0, Math.round((screen.width - w) / 2));
+    const top = Math.max(0, Math.round((screen.height - h) / 2));
+    const popup = window.open(
+      data.url,
+      "google-oauth",
+      `width=${w},height=${h},left=${left},top=${top},scrollbars=yes`
+    );
+
+    if (!popup) {
+      // Popup blocked — fall back to full-page redirect (history will be polluted, but it works)
+      window.location.replace(data.url);
+      return;
+    }
+
+    function onMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== "oauth-complete") return;
+      cleanup();
+      // Full page load so server components pick up the new session cookies
+      window.location.replace(redirectTo);
+    }
+
+    function cleanup() {
+      window.removeEventListener("message", onMessage);
+      clearInterval(pollClosed);
+      setGoogleLoading(false);
+      if (!popup.closed) popup.close();
+    }
+
+    window.addEventListener("message", onMessage);
+
+    // If the user closes the popup without finishing auth
+    const pollClosed = setInterval(() => {
+      if (popup.closed) cleanup();
+    }, 500);
   }
 
   return (

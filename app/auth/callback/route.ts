@@ -38,13 +38,19 @@ export async function GET(request: Request) {
   const next = requestUrl.searchParams.get("next") || "/dashboard";
   const destination = next.startsWith("/") ? next : "/dashboard";
 
-  // Use a client-side replace so neither the callback URL nor Google's page
-  // remains in browser history — pressing back skips straight past the OAuth flow.
+  // If this page loaded inside a popup (opened by login-form), notify the opener
+  // and close — the opener will do the final navigation, keeping its history clean.
+  // If there is no opener (e.g. popup was blocked and we fell back to a full redirect),
+  // just replace the current entry with the destination as before.
   return new NextResponse(
-    `<!doctype html><html><head>
-<meta http-equiv="refresh" content="0;url=${destination}">
-<script>window.location.replace(${JSON.stringify(destination)})</script>
-</head><body></body></html>`,
+    `<!doctype html><html><head></head><body><script>
+if (window.opener && window.opener !== window) {
+  window.opener.postMessage({ type: "oauth-complete" }, window.location.origin);
+  setTimeout(() => window.close(), 100);
+} else {
+  window.location.replace(${JSON.stringify(destination)});
+}
+</script></body></html>`,
     {
       status: 200,
       headers: { "Content-Type": "text/html; charset=utf-8" },
