@@ -241,14 +241,22 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
             <div className="flex items-center gap-2">
               <Linkedin className="w-4 h-4 text-blue-400 flex-shrink-0" />
               <a
-                href={lead.linkedin_url}
+                href={normaliseLinkedInUrl(lead.linkedin_url)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm text-blue-400 hover:text-blue-300 flex-1 truncate transition-colors hover:underline"
               >
                 View LinkedIn Profile
               </a>
-              <ExternalLink className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+              <a
+                href={normaliseLinkedInUrl(lead.linkedin_url)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-all flex-shrink-0"
+                title="Open LinkedIn profile"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
               <CopyButton text={lead.linkedin_url} label="LinkedIn URL" />
             </div>
           )}
