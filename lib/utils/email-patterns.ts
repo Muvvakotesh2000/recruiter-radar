@@ -2,23 +2,23 @@
  * Email pattern utilities — no external API required.
  */
 
+// pct = approximate real-world prevalence across business email domains
 export const COMMON_PATTERNS = [
-  // Most common first (tech industry prevalence order)
-  { pattern: "{first}.{last}",       label: "first.last"       },
-  { pattern: "{f}{last}",            label: "flast"            },
-  { pattern: "{first}",              label: "first"            },
-  { pattern: "{first}{last}",        label: "firstlast"        },
-  { pattern: "{last}{first}",        label: "lastfirst"        },
-  { pattern: "{last}.{first}",       label: "last.first"       },
-  { pattern: "{f}.{last}",           label: "f.last"           },
-  { pattern: "{first}{l}",           label: "firstl"           },
-  { pattern: "{first}_{last}",       label: "first_last"       },
-  { pattern: "{last}_{first}",       label: "last_first"       },
-  { pattern: "{l}{first}",           label: "lfirst"           },
-  { pattern: "{last}{f}",            label: "lastf"            },
-  { pattern: "{l}.{first}",          label: "l.first"          },
-  { pattern: "{last}.{f}",           label: "last.f"           },
-  { pattern: "{last}",               label: "last"             },
+  { pattern: "{first}.{last}",  label: "first.last",  pct: 46 },
+  { pattern: "{f}{last}",       label: "flast",       pct: 22 },
+  { pattern: "{first}",         label: "first",       pct:  9 },
+  { pattern: "{first}{last}",   label: "firstlast",   pct:  6 },
+  { pattern: "{f}.{last}",      label: "f.last",      pct:  4 },
+  { pattern: "{last}",          label: "last",        pct:  3 },
+  { pattern: "{first}_{last}",  label: "first_last",  pct:  3 },
+  { pattern: "{first}{l}",      label: "firstl",      pct:  2 },
+  { pattern: "{last}.{first}",  label: "last.first",  pct:  1 },
+  { pattern: "{last}{first}",   label: "lastfirst",   pct:  1 },
+  { pattern: "{l}.{first}",     label: "l.first",     pct:  1 },
+  { pattern: "{last}.{f}",      label: "last.f",      pct:  1 },
+  { pattern: "{last}_{first}",  label: "last_first",  pct:  1 },
+  { pattern: "{l}{first}",      label: "lfirst",      pct:  0 },
+  { pattern: "{last}{f}",       label: "lastf",       pct:  0 },
 ];
 
 /**

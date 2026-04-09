@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -18,10 +18,6 @@ import {
   FlaskConical,
   Send,
   AlertCircle,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  HelpCircle,
 } from "lucide-react";
 import type { RecruiterLead } from "@/types/database";
 import { Badge } from "@/components/ui/badge";
@@ -145,72 +141,6 @@ function OutreachSendButton({
   );
 }
 
-type VerifyStatus =
-  | "checking"
-  | "valid"           // SMTP confirmed, not catch-all
-  | "invalid"         // SMTP rejected (550/551)
-  | "catch_all"       // domain accepts any address — rank, don't trust
-  | "domain_ok"       // MX exists but SMTP blocked; could still be real
-  | "no_mx"           // domain has no mail servers
-  | "invalid_format"
-  | "error";
-
-const VERIFY_CONFIGS: Record<Exclude<VerifyStatus, "checking">, { icon: React.ReactNode; label: string; cls: string; tip: string }> = {
-  valid:          { icon: <CheckCircle2 className="w-3.5 h-3.5" />, label: "Valid",      cls: "text-emerald-400",     tip: "SMTP confirmed — mailbox exists"                   },
-  invalid:        { icon: <XCircle      className="w-3.5 h-3.5" />, label: "Invalid",    cls: "text-red-400",         tip: "Mail server rejected this address"                  },
-  catch_all:      { icon: <HelpCircle   className="w-3.5 h-3.5" />, label: "Catch-all",  cls: "text-amber-400",       tip: "Domain accepts any address — can't confirm mailbox" },
-  domain_ok:      { icon: <CheckCircle2 className="w-3.5 h-3.5" />, label: "Domain OK",  cls: "text-blue-400",        tip: "Domain has MX records; SMTP check was blocked"      },
-  no_mx:          { icon: <XCircle      className="w-3.5 h-3.5" />, label: "No MX",      cls: "text-red-400",         tip: "Domain has no mail servers — email is invalid"      },
-  invalid_format: { icon: <XCircle      className="w-3.5 h-3.5" />, label: "Bad format", cls: "text-red-400",         tip: "Not a valid email format"                          },
-  error:          { icon: <HelpCircle   className="w-3.5 h-3.5" />, label: "Error",      cls: "text-muted-foreground",tip: "Verification failed"                                },
-};
-
-function VerifyButton({ email }: { email: string }) {
-  const [status, setStatus] = useState<VerifyStatus | null>(null);
-
-  const verify = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (status && status !== "error") return;
-    setStatus("checking");
-    try {
-      const res = await fetch(`/api/verify-email?email=${encodeURIComponent(email)}`);
-      const data = await res.json();
-      if (!res.ok) {
-        setStatus("error");
-        toast.error("Verification failed", { description: data.error });
-        return;
-      }
-      setStatus(data.result as VerifyStatus);
-    } catch {
-      setStatus("error");
-      toast.error("Verification request failed");
-    }
-  }, [email, status]);
-
-  if (status === null) {
-    return (
-      <button
-        onClick={verify}
-        className="text-xs px-1.5 py-0.5 rounded border border-border/50 text-muted-foreground/60 hover:text-violet-400 hover:border-violet-500/40 transition-all flex-shrink-0"
-        title="3-layer check: format → DNS MX → SMTP probe"
-      >
-        Verify
-      </button>
-    );
-  }
-
-  if (status === "checking") {
-    return <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground flex-shrink-0" />;
-  }
-
-  const cfg = VERIFY_CONFIGS[status as Exclude<VerifyStatus, "checking">];
-  return (
-    <span className={`flex items-center gap-1 text-xs flex-shrink-0 ${cfg.cls}`} title={cfg.tip}>
-      {cfg.icon}
-      <span>{cfg.label}</span>
-    </span>
-  );
-}
 
 export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps) {
   const [showOutreach, setShowOutreach] = useState(false);
@@ -221,8 +151,9 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
   const emailCandidates = companyDomain
     ? (() => {
         const { first, last } = splitName(lead.full_name);
-        return COMMON_PATTERNS.map(({ pattern, label }) => ({
+        return COMMON_PATTERNS.map(({ pattern, label, pct }) => ({
           label,
+          pct,
           email: applyPattern(pattern, first, last, companyDomain),
         })).filter(({ email }) => email && email !== lead.email);
       })()
@@ -415,10 +346,10 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
                   className="mt-3"
                 >
                   <p className="text-xs text-muted-foreground/60 mb-2 italic">
-                    Verify runs format → MX → SMTP → catch-all detection
+                    Ranked by prevalence across business email domains
                   </p>
                   <div className="space-y-1.5">
-                    {emailCandidates.map(({ label, email }) => (
+                    {emailCandidates.map(({ label, email, pct }) => (
                       <div
                         key={email}
                         className="flex items-center gap-2 bg-secondary/30 rounded-md px-2.5 py-1.5 border border-border/40"
@@ -429,7 +360,18 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
                         <span className="text-xs font-mono text-foreground/75 flex-1 truncate">
                           {email}
                         </span>
-                        <VerifyButton email={email} />
+                        <span
+                          title="Prevalence across business email domains"
+                          className={`text-xs font-medium flex-shrink-0 tabular-nums ${
+                            pct >= 20
+                              ? "text-emerald-400"
+                              : pct >= 5
+                              ? "text-amber-400"
+                              : "text-muted-foreground/50"
+                          }`}
+                        >
+                          {pct > 0 ? `${pct}%` : "<1%"}
+                        </span>
                         <CopyButton text={email} label={email} />
                       </div>
                     ))}
