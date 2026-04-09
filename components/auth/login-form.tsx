@@ -43,8 +43,7 @@ export function LoginForm() {
     }
 
     toast.success("Welcome back!");
-    router.push(redirectTo);
-    router.refresh();
+    window.location.replace(redirectTo);
   }
 
   async function handleGoogleSignIn() {

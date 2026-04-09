@@ -45,7 +45,7 @@ export function SignupForm() {
     toast.success("Account created!", {
       description: "Check your email to confirm your account, then sign in.",
     });
-    router.push("/login");
+    window.location.replace("/login");
   }
 
   async function handleGoogleSignIn() {
