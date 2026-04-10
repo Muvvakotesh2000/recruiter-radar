@@ -154,25 +154,28 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
   };
 
   function buildUILocationTiers(location: string) {
-    const tier0 = new Set<string>();
-    const tier1 = new Set<string>();
-    const tier2 = new Set<string>();
+    const tier0: string[] = [];
+    const tier1: string[] = [];
+    const tier2: string[] = [];
+    const add0 = (v: string) => { if (!tier0.includes(v)) tier0.push(v); };
+    const add1 = (v: string) => { if (!tier1.includes(v)) tier1.push(v); };
+    const add2 = (v: string) => { if (!tier2.includes(v)) tier2.push(v); };
     const parts = location.toLowerCase().split(/[\/,;]|\band\b/i).map(p => p.trim()).filter(Boolean);
     for (const part of parts) {
-      tier0.add(part);
+      add0(part);
       const words = part.split(/\s+/);
-      tier0.add(words[0]);
+      add0(words[0]);
       const lastWord = words[words.length - 1].toUpperCase();
-      if (STATE_ABBR_UI[lastWord]) { tier2.add(STATE_ABBR_UI[lastWord]); tier2.add(lastWord.toLowerCase()); }
+      if (STATE_ABBR_UI[lastWord]) { add2(STATE_ABBR_UI[lastWord]); add2(lastWord.toLowerCase()); }
       for (const [abbr, full] of Object.entries(STATE_ABBR_UI)) {
-        if (part.includes(full)) { tier2.add(full); tier2.add(abbr.toLowerCase()); }
+        if (part.includes(full)) { add2(full); add2(abbr.toLowerCase()); }
       }
       for (const [city, aliases] of Object.entries(METRO_ALIASES_UI)) {
         if (words[0].includes(city) || city.includes(words[0]) || part.includes(city)) {
-          aliases.forEach(a => tier1.add(a)); tier1.add(city);
+          aliases.forEach(a => add1(a)); add1(city);
         }
         if (aliases.some(a => a === part || part.includes(a))) {
-          tier0.add(city); aliases.forEach(a => tier1.add(a));
+          add0(city); aliases.forEach(a => add1(a));
         }
       }
     }
@@ -182,10 +185,11 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
   function locationMatchScore(leadLocation: string | null): number {
     if (!leadLocation) return 4;
     const ll = leadLocation.toLowerCase();
+    const llCity = ll.split(",")[0].trim();
     const tiers = buildUILocationTiers(job.location ?? "");
-    for (const t of tiers.tier0) if (ll.includes(t) || t.includes(ll.split(",")[0].trim())) return 0;
-    for (const t of tiers.tier1) if (ll.includes(t) || t.includes(ll.split(",")[0].trim())) return 1;
-    for (const t of tiers.tier2) if (ll.includes(t)) return 2;
+    if (tiers.tier0.some(t => ll.includes(t) || t.includes(llCity))) return 0;
+    if (tiers.tier1.some(t => ll.includes(t) || t.includes(llCity))) return 1;
+    if (tiers.tier2.some(t => ll.includes(t))) return 2;
     return 3;
   }
 

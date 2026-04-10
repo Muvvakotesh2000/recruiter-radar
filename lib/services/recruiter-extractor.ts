@@ -165,13 +165,16 @@ const METRO_ALIASES: Record<string, string[]> = {
  * - tier2: state names and abbreviations
  */
 export function buildLocationTiers(location: string): {
-  tier0: Set<string>;
-  tier1: Set<string>;
-  tier2: Set<string>;
+  tier0: string[];
+  tier1: string[];
+  tier2: string[];
 } {
-  const tier0 = new Set<string>();
-  const tier1 = new Set<string>();
-  const tier2 = new Set<string>();
+  const tier0: string[] = [];
+  const tier1: string[] = [];
+  const tier2: string[] = [];
+  const add0 = (v: string) => { if (!tier0.includes(v)) tier0.push(v); };
+  const add1 = (v: string) => { if (!tier1.includes(v)) tier1.push(v); };
+  const add2 = (v: string) => { if (!tier2.includes(v)) tier2.push(v); };
 
   const parts = location
     .split(/[\/,;]|\band\b/i)
@@ -179,39 +182,39 @@ export function buildLocationTiers(location: string): {
     .filter(Boolean);
 
   for (const part of parts) {
-    // Tier 0: exact tokens (full part + individual words)
-    tier0.add(part);
+    // Tier 0: exact tokens (full part + primary city word)
+    add0(part);
     const words = part.split(/\s+/);
-    const cityWord = words[0]; // first word = primary city
-    tier0.add(cityWord);
+    const cityWord = words[0];
+    add0(cityWord);
 
     // State abbreviation → full name
     const stateAbbr = words[words.length - 1].toUpperCase();
     if (STATE_ABBR[stateAbbr]) {
-      tier2.add(STATE_ABBR[stateAbbr].toLowerCase());
-      tier2.add(stateAbbr.toLowerCase());
+      add2(STATE_ABBR[stateAbbr].toLowerCase());
+      add2(stateAbbr.toLowerCase());
     }
 
     // State full name already present (e.g. "Texas")
     for (const [abbr, full] of Object.entries(STATE_ABBR)) {
       if (part.includes(full.toLowerCase())) {
-        tier2.add(full.toLowerCase());
-        tier2.add(abbr.toLowerCase());
+        add2(full.toLowerCase());
+        add2(abbr.toLowerCase());
       }
     }
 
     // Tier 1: metro aliases for this city
     for (const [metroCity, aliases] of Object.entries(METRO_ALIASES)) {
       if (cityWord.includes(metroCity) || metroCity.includes(cityWord) || part.includes(metroCity)) {
-        aliases.forEach((a) => tier1.add(a.toLowerCase()));
-        tier1.add(metroCity.toLowerCase());
+        aliases.forEach((a) => add1(a.toLowerCase()));
+        add1(metroCity.toLowerCase());
       }
     }
-    // Also check if this part IS a metro alias
+    // Also check if this part IS a metro alias → promote its primary city to tier0
     for (const [metroCity, aliases] of Object.entries(METRO_ALIASES)) {
       if (aliases.some((a) => a.toLowerCase() === part || part.includes(a.toLowerCase()))) {
-        tier0.add(metroCity.toLowerCase());
-        aliases.forEach((a) => tier1.add(a.toLowerCase()));
+        add0(metroCity.toLowerCase());
+        aliases.forEach((a) => add1(a.toLowerCase()));
       }
     }
   }
@@ -219,27 +222,19 @@ export function buildLocationTiers(location: string): {
   return { tier0, tier1, tier2 };
 }
 
-/** Match score for a lead location against tiered job location sets. 0=best */
+/** Match score for a lead location against tiered job location arrays. 0=best */
 export function locationTierScore(
   leadLocation: string | null,
-  tiers: { tier0: Set<string>; tier1: Set<string>; tier2: Set<string> }
+  tiers: { tier0: string[]; tier1: string[]; tier2: string[] }
 ): 0 | 1 | 2 | 3 {
   if (!leadLocation) return 3;
   const ll = leadLocation.toLowerCase();
+  const llCity = ll.split(",")[0].trim();
 
-  // Tier 0: exact city / token match
-  for (const t of tiers.tier0) {
-    if (ll.includes(t) || t.includes(ll.split(",")[0].trim())) return 0;
-  }
-  // Tier 1: metro / regional alias match
-  for (const t of tiers.tier1) {
-    if (ll.includes(t) || t.includes(ll.split(",")[0].trim())) return 1;
-  }
-  // Tier 2: state match
-  for (const t of tiers.tier2) {
-    if (ll.includes(t)) return 2;
-  }
-  return 3; // different region entirely
+  if (tiers.tier0.some((t) => ll.includes(t) || t.includes(llCity))) return 0;
+  if (tiers.tier1.some((t) => ll.includes(t) || t.includes(llCity))) return 1;
+  if (tiers.tier2.some((t) => ll.includes(t))) return 2;
+  return 3;
 }
 
 // ─── Location extraction ────────────────────────────────────────────────────────
