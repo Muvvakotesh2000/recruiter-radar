@@ -86,7 +86,7 @@ export async function runGeneration(
 
     // Skip Phase 1 AI query generation — hardcoded queries are equivalent
     // and save one full AI API call per run
-    const queryResponse: SearchQueriesResponse = buildFallbackQueries(input);
+    let queryResponse: SearchQueriesResponse = buildFallbackQueries(input);
 
     // If user provided a recruiter name hint, inject a direct profile search
     // as the very first query — this is the most targeted possible search
