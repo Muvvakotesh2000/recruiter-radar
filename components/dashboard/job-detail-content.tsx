@@ -118,28 +118,80 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
   const status = getStatusColor(job.status);
   const CONFIDENCE_ORDER: Record<string, number> = { High: 0, Medium: 1, Low: 2 };
 
-  // Normalise job locations for matching (e.g. "Austin, TX" → ["austin", "tx"])
-  const jobLocationTokens = (job.location ?? "")
-    .toLowerCase()
-    .split(/[,\/;]|\band\b/i)
-    .map((t) => t.trim())
-    .filter(Boolean);
+  // Tiered location sort: exact city (0) > metro/regional (1) > same state (2) > different (3) > unknown (4)
+  const STATE_ABBR_UI: Record<string, string> = {
+    AL:"alabama",AK:"alaska",AZ:"arizona",AR:"arkansas",CA:"california",CO:"colorado",
+    CT:"connecticut",DE:"delaware",FL:"florida",GA:"georgia",HI:"hawaii",ID:"idaho",
+    IL:"illinois",IN:"indiana",IA:"iowa",KS:"kansas",KY:"kentucky",LA:"louisiana",
+    ME:"maine",MD:"maryland",MA:"massachusetts",MI:"michigan",MN:"minnesota",
+    MS:"mississippi",MO:"missouri",MT:"montana",NE:"nebraska",NV:"nevada",
+    NH:"new hampshire",NJ:"new jersey",NM:"new mexico",NY:"new york",NC:"north carolina",
+    ND:"north dakota",OH:"ohio",OK:"oklahoma",OR:"oregon",PA:"pennsylvania",
+    RI:"rhode island",SC:"south carolina",SD:"south dakota",TN:"tennessee",TX:"texas",
+    UT:"utah",VT:"vermont",VA:"virginia",WA:"washington",WV:"west virginia",
+    WI:"wisconsin",WY:"wyoming",DC:"washington dc",
+  };
+  const METRO_ALIASES_UI: Record<string, string[]> = {
+    "san francisco":["bay area","sf bay area","silicon valley","greater san francisco","sf","east bay","south bay","san jose","oakland"],
+    "san jose":["bay area","sf bay area","silicon valley","south bay"],
+    "new york":["nyc","new york city","greater new york","tri-state area","brooklyn","queens","manhattan","new jersey","nj"],
+    "los angeles":["la","greater los angeles","socal","southern california","long beach","orange county","oc","santa monica"],
+    "seattle":["greater seattle","puget sound","bellevue","redmond","kirkland"],
+    "chicago":["greater chicago","chicagoland"],
+    "boston":["greater boston","cambridge ma","cambridge","somerville","waltham"],
+    "austin":["greater austin","round rock","cedar park","pflugerville","austin metro"],
+    "dallas":["dfw","dallas fort worth","greater dallas","fort worth","plano","frisco","dallas-fort worth"],
+    "houston":["greater houston","the woodlands","sugar land"],
+    "denver":["greater denver","metro denver","boulder","aurora"],
+    "miami":["greater miami","south florida","fort lauderdale","boca raton"],
+    "atlanta":["greater atlanta","metro atlanta","alpharetta"],
+    "washington":["dc","dmv","washington dc","nova","northern virginia","arlington va","bethesda"],
+    "philadelphia":["greater philadelphia","philly"],
+    "phoenix":["greater phoenix","scottsdale","tempe","chandler","mesa"],
+    "minneapolis":["twin cities","saint paul","st paul","minneapolis-st paul"],
+    "raleigh":["research triangle","triangle","rtp","durham","chapel hill","cary"],
+    "tampa":["greater tampa","tampa bay","st petersburg"],
+  };
+
+  function buildUILocationTiers(location: string) {
+    const tier0 = new Set<string>();
+    const tier1 = new Set<string>();
+    const tier2 = new Set<string>();
+    const parts = location.toLowerCase().split(/[\/,;]|\band\b/i).map(p => p.trim()).filter(Boolean);
+    for (const part of parts) {
+      tier0.add(part);
+      const words = part.split(/\s+/);
+      tier0.add(words[0]);
+      const lastWord = words[words.length - 1].toUpperCase();
+      if (STATE_ABBR_UI[lastWord]) { tier2.add(STATE_ABBR_UI[lastWord]); tier2.add(lastWord.toLowerCase()); }
+      for (const [abbr, full] of Object.entries(STATE_ABBR_UI)) {
+        if (part.includes(full)) { tier2.add(full); tier2.add(abbr.toLowerCase()); }
+      }
+      for (const [city, aliases] of Object.entries(METRO_ALIASES_UI)) {
+        if (words[0].includes(city) || city.includes(words[0]) || part.includes(city)) {
+          aliases.forEach(a => tier1.add(a)); tier1.add(city);
+        }
+        if (aliases.some(a => a === part || part.includes(a))) {
+          tier0.add(city); aliases.forEach(a => tier1.add(a));
+        }
+      }
+    }
+    return { tier0, tier1, tier2 };
+  }
 
   function locationMatchScore(leadLocation: string | null): number {
-    if (!leadLocation) return 2; // unknown location — lowest priority
+    if (!leadLocation) return 4;
     const ll = leadLocation.toLowerCase();
-    // Exact city match
-    if (jobLocationTokens.some((t) => ll.includes(t) || t.includes(ll.split(",")[0].trim()))) return 0;
-    // State/region partial match
-    if (jobLocationTokens.some((t) => t.length >= 2 && ll.includes(t.slice(0, 4)))) return 1;
-    return 2; // different location
+    const tiers = buildUILocationTiers(job.location ?? "");
+    for (const t of tiers.tier0) if (ll.includes(t) || t.includes(ll.split(",")[0].trim())) return 0;
+    for (const t of tiers.tier1) if (ll.includes(t) || t.includes(ll.split(",")[0].trim())) return 1;
+    for (const t of tiers.tier2) if (ll.includes(t)) return 2;
+    return 3;
   }
 
   const leads = (job.recruiter_leads ?? []).slice().sort((a, b) => {
-    // Primary: location match (exact city first)
     const locDiff = locationMatchScore(a.location) - locationMatchScore(b.location);
     if (locDiff !== 0) return locDiff;
-    // Secondary: confidence level
     return (CONFIDENCE_ORDER[a.confidence_level] ?? 3) - (CONFIDENCE_ORDER[b.confidence_level] ?? 3);
   });
   const emailLeads = leads.filter((l) => l.email);

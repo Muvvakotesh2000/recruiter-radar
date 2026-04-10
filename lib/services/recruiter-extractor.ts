@@ -103,14 +103,163 @@ export function fuzzyCompanyMatch(resultCompany: string, inputCompany: string): 
   return longer.includes(shorter) || (shorter.length >= 4 && longer.startsWith(shorter.slice(0, 4)));
 }
 
+// ─── State + Metro maps ─────────────────────────────────────────────────────────
+
+/** US state abbreviation → full name */
+const STATE_ABBR: Record<string, string> = {
+  AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas",
+  CA: "California", CO: "Colorado", CT: "Connecticut", DE: "Delaware",
+  FL: "Florida", GA: "Georgia", HI: "Hawaii", ID: "Idaho",
+  IL: "Illinois", IN: "Indiana", IA: "Iowa", KS: "Kansas",
+  KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland",
+  MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi",
+  MO: "Missouri", MT: "Montana", NE: "Nebraska", NV: "Nevada",
+  NH: "New Hampshire", NJ: "New Jersey", NM: "New Mexico", NY: "New York",
+  NC: "North Carolina", ND: "North Dakota", OH: "Ohio", OK: "Oklahoma",
+  OR: "Oregon", PA: "Pennsylvania", RI: "Rhode Island", SC: "South Carolina",
+  SD: "South Dakota", TN: "Tennessee", TX: "Texas", UT: "Utah",
+  VT: "Vermont", VA: "Virginia", WA: "Washington", WV: "West Virginia",
+  WI: "Wisconsin", WY: "Wyoming", DC: "Washington DC",
+};
+
+/**
+ * Metro / regional aliases — maps a primary city name to its common regional labels.
+ * Used for tier-1 location matching so "Bay Area" matches a job in "San Francisco".
+ */
+const METRO_ALIASES: Record<string, string[]> = {
+  "san francisco": ["bay area", "sf bay area", "silicon valley", "greater san francisco", "sf", "east bay", "south bay", "peninsula", "san jose", "oakland", "berkeley"],
+  "san jose":      ["bay area", "sf bay area", "silicon valley", "greater san jose", "south bay"],
+  "new york":      ["nyc", "new york city", "greater new york", "tri-state area", "metro new york", "brooklyn", "queens", "manhattan", "bronx", "new jersey", "nj"],
+  "los angeles":   ["la", "greater los angeles", "socal", "so cal", "southern california", "long beach", "pasadena", "orange county", "oc", "inland empire", "santa monica", "burbank"],
+  "seattle":       ["greater seattle", "puget sound", "bellevue", "redmond", "kirkland", "eastside"],
+  "chicago":       ["greater chicago", "chicagoland", "chicagoland area", "evanston", "naperville"],
+  "boston":        ["greater boston", "metro boston", "cambridge ma", "cambridge", "somerville", "waltham", "quincy"],
+  "austin":        ["greater austin", "round rock", "cedar park", "pflugerville", "austin metro"],
+  "dallas":        ["dfw", "dallas fort worth", "greater dallas", "fort worth", "plano", "irving", "frisco", "mckinney", "dallas-fort worth"],
+  "houston":       ["greater houston", "the woodlands", "sugar land", "katy"],
+  "denver":        ["greater denver", "metro denver", "boulder", "aurora", "lakewood", "denver metro"],
+  "miami":         ["greater miami", "south florida", "fort lauderdale", "boca raton", "miami-dade"],
+  "atlanta":       ["greater atlanta", "metro atlanta", "buckhead", "alpharetta", "marietta"],
+  "washington":    ["dc", "dmv", "washington dc", "greater washington", "nova", "northern virginia", "arlington va", "bethesda", "silver spring", "reston"],
+  "philadelphia":  ["greater philadelphia", "philly", "metro philadelphia", "wilmington"],
+  "phoenix":       ["greater phoenix", "metro phoenix", "scottsdale", "tempe", "chandler", "mesa"],
+  "san diego":     ["greater san diego", "metro san diego"],
+  "minneapolis":   ["twin cities", "greater minneapolis", "saint paul", "st paul", "minneapolis-st paul"],
+  "portland":      ["greater portland", "metro portland", "beaverton", "hillsboro"],
+  "salt lake":     ["salt lake city", "greater salt lake", "slc", "provo", "orem"],
+  "raleigh":       ["research triangle", "triangle", "rtp", "research triangle park", "durham", "chapel hill", "cary"],
+  "nashville":     ["greater nashville", "metro nashville"],
+  "charlotte":     ["greater charlotte", "metro charlotte"],
+  "detroit":       ["greater detroit", "metro detroit", "ann arbor"],
+  "st louis":      ["saint louis", "greater st louis", "metro st louis"],
+  "kansas city":   ["greater kansas city", "metro kansas city"],
+  "tampa":         ["greater tampa", "tampa bay", "st petersburg", "clearwater"],
+  "orlando":       ["greater orlando", "central florida"],
+};
+
+/**
+ * Build tiered location sets from a job's location string.
+ *
+ * - tier0: exact city tokens (e.g. "austin", "tx")
+ * - tier1: metro/regional aliases (e.g. "greater austin area", "round rock")
+ * - tier2: state names and abbreviations
+ */
+export function buildLocationTiers(location: string): {
+  tier0: Set<string>;
+  tier1: Set<string>;
+  tier2: Set<string>;
+} {
+  const tier0 = new Set<string>();
+  const tier1 = new Set<string>();
+  const tier2 = new Set<string>();
+
+  const parts = location
+    .split(/[\/,;]|\band\b/i)
+    .map((p) => p.trim().toLowerCase())
+    .filter(Boolean);
+
+  for (const part of parts) {
+    // Tier 0: exact tokens (full part + individual words)
+    tier0.add(part);
+    const words = part.split(/\s+/);
+    const cityWord = words[0]; // first word = primary city
+    tier0.add(cityWord);
+
+    // State abbreviation → full name
+    const stateAbbr = words[words.length - 1].toUpperCase();
+    if (STATE_ABBR[stateAbbr]) {
+      tier2.add(STATE_ABBR[stateAbbr].toLowerCase());
+      tier2.add(stateAbbr.toLowerCase());
+    }
+
+    // State full name already present (e.g. "Texas")
+    for (const [abbr, full] of Object.entries(STATE_ABBR)) {
+      if (part.includes(full.toLowerCase())) {
+        tier2.add(full.toLowerCase());
+        tier2.add(abbr.toLowerCase());
+      }
+    }
+
+    // Tier 1: metro aliases for this city
+    for (const [metroCity, aliases] of Object.entries(METRO_ALIASES)) {
+      if (cityWord.includes(metroCity) || metroCity.includes(cityWord) || part.includes(metroCity)) {
+        aliases.forEach((a) => tier1.add(a.toLowerCase()));
+        tier1.add(metroCity.toLowerCase());
+      }
+    }
+    // Also check if this part IS a metro alias
+    for (const [metroCity, aliases] of Object.entries(METRO_ALIASES)) {
+      if (aliases.some((a) => a.toLowerCase() === part || part.includes(a.toLowerCase()))) {
+        tier0.add(metroCity.toLowerCase());
+        aliases.forEach((a) => tier1.add(a.toLowerCase()));
+      }
+    }
+  }
+
+  return { tier0, tier1, tier2 };
+}
+
+/** Match score for a lead location against tiered job location sets. 0=best */
+export function locationTierScore(
+  leadLocation: string | null,
+  tiers: { tier0: Set<string>; tier1: Set<string>; tier2: Set<string> }
+): 0 | 1 | 2 | 3 {
+  if (!leadLocation) return 3;
+  const ll = leadLocation.toLowerCase();
+
+  // Tier 0: exact city / token match
+  for (const t of tiers.tier0) {
+    if (ll.includes(t) || t.includes(ll.split(",")[0].trim())) return 0;
+  }
+  // Tier 1: metro / regional alias match
+  for (const t of tiers.tier1) {
+    if (ll.includes(t) || t.includes(ll.split(",")[0].trim())) return 1;
+  }
+  // Tier 2: state match
+  for (const t of tiers.tier2) {
+    if (ll.includes(t)) return 2;
+  }
+  return 3; // different region entirely
+}
+
 // ─── Location extraction ────────────────────────────────────────────────────────
 
 const LOCATION_PATTERNS = [
+  // Explicit "Location:" label
   /Location[:\s]+([A-Z][^.\n]{3,45}?)(?:\s*\.|$)/i,
+  // "based in City, ST"
   /\bbased in\s+([A-Z][^.\n,]{3,35}(?:,\s*[A-Z]{2,})?)/i,
+  // "in City, State" or "in City, ST"
   /\bin\s+([A-Z][a-z]+(?: [A-Z][a-z]+)*,\s*(?:[A-Z]{2}|[A-Z][a-z]+))/,
+  // "City, ST" pattern
   /([A-Z][a-z]+(?: [A-Z][a-z]+)*),\s*([A-Z]{2})\b/,
+  // "Greater X Area" / "X Metropolitan Area" / "X Metro Area"
+  /(Greater\s+[A-Z][a-z]+(?: [A-Z][a-z]+)*(?:\s+Area)?)/,
+  /([A-Z][a-z]+(?: [A-Z][a-z]+)*\s+(?:Metropolitan|Metro)\s+Area)/,
+  // "X Area" (Bay Area, Bay Area, etc.)
   /([A-Z][a-z]+(?: [A-Z][a-z]+)*)\s+Area\b/,
+  // Standalone US state full name
+  new RegExp(`\\b(${Object.values(STATE_ABBR).join("|")})\\b`),
 ];
 
 export function extractLocation(text: string): string | null {
@@ -120,7 +269,7 @@ export function extractLocation(text: string): string | null {
       const loc = (m[1] ?? "").trim();
       if (
         loc.length >= 3 &&
-        loc.length <= 50 &&
+        loc.length <= 60 &&
         !/^(the|a|an|and|or|at|in|is|are)\b/i.test(loc)
       ) {
         return loc;
@@ -412,27 +561,14 @@ export function scoreLead(lead: ParsedLead, input: RecruiterSearchInput): number
   else if (tc === "secondary") score += 8;
   else score -= 5;
 
-  // Location match — location-first priority
-  const jobLocs = input.location
-    .split(/[\/,;]|\band\b/i)
-    .map((l) => l.trim().toLowerCase())
-    .filter(Boolean);
-
-  if (lead.location) {
-    const ll = lead.location.toLowerCase();
-    const exactCityMatch = jobLocs.some((jl) => {
-      const jlCity = jl.split(",")[0].trim();
-      const llCity = ll.split(",")[0].trim();
-      return ll.includes(jlCity) || jl.includes(llCity);
-    });
-    if (exactCityMatch) {
-      score += 20; // strong location bonus
-    } else {
-      score += 2; // has a location but different city
-    }
-  } else {
-    score -= 5; // unknown location penalized
-  }
+  // Location match — tiered (exact city > metro > state > different > unknown)
+  const tiers = buildLocationTiers(input.location);
+  const tierScore = locationTierScore(lead.location, tiers);
+  if (tierScore === 0) score += 20;       // exact city / token match
+  else if (tierScore === 1) score += 15;  // metro / regional alias
+  else if (tierScore === 2) score += 8;   // same state
+  else if (tierScore === 3 && lead.location) score += 2; // different region but has location
+  else score -= 3;                        // no location at all
 
   // Verified source
   if (lead.linkedin_url) score += 10;
@@ -455,18 +591,9 @@ export function generateOutreachMessage(
   const firstName = lead.full_name.split(/\s+/)[0];
   const { company_name, job_title, location } = input;
 
-  const jobLocs = location
-    .split(/[\/,;]|\band\b/i)
-    .map((l) => l.trim().toLowerCase())
-    .filter(Boolean);
-
-  const leadCity = lead.location?.split(",")[0]?.trim().toLowerCase() ?? null;
-
-  const sharedLocation =
-    leadCity &&
-    jobLocs.some(
-      (jl) => jl.includes(leadCity) || leadCity.includes(jl.split(",")[0].trim())
-    );
+  const tiers = buildLocationTiers(location);
+  const tierScore = locationTierScore(lead.location, tiers);
+  const sharedLocation = tierScore <= 1; // exact city OR same metro = shared location
 
   let msg = `Hi ${firstName}, I recently applied for the ${job_title} role at ${company_name} in ${location}.`;
 
