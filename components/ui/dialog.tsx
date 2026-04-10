@@ -41,6 +41,7 @@ const DialogContent = React.forwardRef<
         "glass-strong rounded-2xl shadow-2xl",
         "border border-border/60",
         "p-6",
+        "max-h-[90vh] overflow-y-auto",
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
         "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
