@@ -117,9 +117,31 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
 
   const status = getStatusColor(job.status);
   const CONFIDENCE_ORDER: Record<string, number> = { High: 0, Medium: 1, Low: 2 };
-  const leads = (job.recruiter_leads ?? []).slice().sort(
-    (a, b) => (CONFIDENCE_ORDER[a.confidence_level] ?? 3) - (CONFIDENCE_ORDER[b.confidence_level] ?? 3)
-  );
+
+  // Normalise job locations for matching (e.g. "Austin, TX" → ["austin", "tx"])
+  const jobLocationTokens = (job.location ?? "")
+    .toLowerCase()
+    .split(/[,\/;]|\band\b/i)
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  function locationMatchScore(leadLocation: string | null): number {
+    if (!leadLocation) return 2; // unknown location — lowest priority
+    const ll = leadLocation.toLowerCase();
+    // Exact city match
+    if (jobLocationTokens.some((t) => ll.includes(t) || t.includes(ll.split(",")[0].trim()))) return 0;
+    // State/region partial match
+    if (jobLocationTokens.some((t) => t.length >= 2 && ll.includes(t.slice(0, 4)))) return 1;
+    return 2; // different location
+  }
+
+  const leads = (job.recruiter_leads ?? []).slice().sort((a, b) => {
+    // Primary: location match (exact city first)
+    const locDiff = locationMatchScore(a.location) - locationMatchScore(b.location);
+    if (locDiff !== 0) return locDiff;
+    // Secondary: confidence level
+    return (CONFIDENCE_ORDER[a.confidence_level] ?? 3) - (CONFIDENCE_ORDER[b.confidence_level] ?? 3);
+  });
   const emailLeads = leads.filter((l) => l.email);
   const companyDomain = extractCompanyDomain(job.job_url, job.company_name);
 
