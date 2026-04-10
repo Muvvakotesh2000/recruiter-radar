@@ -1,19 +1,29 @@
 /**
- * Core generation service — two-phase grounded search pipeline.
+ * Core generation service — location-first, AI-minimal pipeline.
  *
- * Phase 1: AI generates targeted search queries (Google/LinkedIn style)
- * Phase 2: Search provider executes those queries and returns real web snippets
- * Phase 3: AI extracts structured recruiter contacts from the real results
- * Phase 4: Persist everything to Supabase
+ * Phase 1  — Build dynamic location+role-aware queries (no AI)
+ * Phase 2  — Execute searches in parallel + optional Hunter.io
+ * Phase 2.5 — Pre-filter by signal (company + recruiter keyword)
+ * Phase 3  — Non-AI extraction from LinkedIn/contact-DB snippets
+ * Phase 3.5 — AI fallback only when < MIN_LEADS_WITHOUT_AI high-confidence leads
+ * Phase 4  — Deduplicate, score, rank, fill emails, persist
  */
 
 import { createClient } from "@/lib/supabase/server";
 import { getAIProvider } from "@/lib/ai/factory";
 import { getSearchProvider } from "@/lib/search/factory";
-import { buildRecruiterPrompt, buildSystemPrompt } from "@/lib/ai/prompt";
 import { hunterDomainSearch, extractCompanyDomain } from "@/lib/services/hunter";
 import { applyPattern, splitName } from "@/lib/utils/email-patterns";
-import type { RecruiterSearchInput, SearchQueriesResponse } from "@/types/ai";
+import type { SearchQueriesResponse as SQR } from "@/types/ai";
+import {
+  filterResultsBySignal,
+  extractWithoutAI,
+  deduplicateLeads,
+  scoreLead,
+  generateOutreachMessage,
+  type ParsedLead,
+} from "@/lib/services/recruiter-extractor";
+import type { RecruiterSearchInput } from "@/types/ai";
 import type { SearchResult } from "@/lib/search/base";
 import type { HunterResult } from "@/lib/services/hunter";
 
@@ -29,18 +39,23 @@ interface GenerationResult {
   queriesUsed: string[];
 }
 
-/** Max queries to execute in parallel. Keeps latency under control. */
+/** Max queries to execute in parallel. */
 const MAX_QUERIES = 4;
 
-/** Max results per query */
+/** Max results per query from Serper. */
 const RESULTS_PER_QUERY = 10;
 
 /**
- * Max results forwarded to the AI extraction step.
- * Capping at 30 cuts token cost ~50% while improving quality — we sort
- * LinkedIn profiles and contact-DB pages to the top before slicing.
+ * If non-AI parsing yields at least this many High-confidence leads,
+ * skip the AI extraction call entirely (saves tokens + cost).
  */
-const MAX_AI_RESULTS = 30;
+const MIN_LEADS_WITHOUT_AI = 3;
+
+/**
+ * Max results forwarded to the AI fallback.
+ * Sorted by signal quality before slicing.
+ */
+const MAX_AI_RESULTS = 20;
 
 export async function runGeneration(
   options: GenerationOptions
@@ -53,7 +68,6 @@ export async function runGeneration(
   const aiProvider = await getAIProvider();
   const searchProvider = await getSearchProvider();
 
-  // Create generation run record
   const { data: runData, error: runError } = await db
     .from("generation_runs")
     .insert({
@@ -68,14 +82,11 @@ export async function runGeneration(
     .single();
 
   if (runError || !runData) {
-    throw new Error(
-      `Failed to create generation run: ${runError?.message}`
-    );
+    throw new Error(`Failed to create generation run: ${runError?.message}`);
   }
 
   const generationRunId = (runData as { id: string }).id;
 
-  // Mark job as processing
   await db
     .from("jobs")
     .update({ status: "processing", ai_provider: aiProvider.providerName })
@@ -85,71 +96,44 @@ export async function runGeneration(
   let queriesUsed: string[] = [];
 
   try {
-    // ── Phase 1: Generate search queries ──────────────────────────────────────
-    console.log(
-      `[Generation] Phase 1 — generating queries via ${aiProvider.providerName}`
-    );
+    // ── Phase 1: Build dynamic queries ──────────────────────────────────────────
+    console.log("[Generation] Phase 1 — building dynamic queries");
 
-    // Skip Phase 1 AI query generation — hardcoded queries are equivalent
-    // and save one full AI API call per run
-    let queryResponse: SearchQueriesResponse = buildFallbackQueries(input);
+    let queries = buildDynamicQueries(input);
 
-    // If user provided a recruiter name hint, inject a direct profile search
-    // as the very first query — this is the most targeted possible search
+    // Recruiter hint: prepend direct profile search (highest priority)
     if (input.recruiter_hint) {
-      const hintQuery = {
-        query: `site:linkedin.com/in "${input.recruiter_hint}" "${input.company_name}"`,
-        purpose: `Direct LinkedIn profile search for ${input.recruiter_hint}`,
-        platform: "linkedin" as const,
-      };
-      queryResponse = {
-        queries: [hintQuery, ...queryResponse.queries],
-      };
-    } else {
-      // For LinkedIn job postings without a hint, inject proven recruiter queries
-      const isLinkedIn = input.job_url.includes("linkedin.com/jobs");
-      if (isLinkedIn) {
-        const liQueries = buildLinkedInRecruiterQueries(input);
-        queryResponse = {
-          queries: [
-            ...liQueries,
-            ...queryResponse.queries.filter(
-              (q) => !liQueries.some((lq) => lq.query === q.query)
-            ),
-          ],
-        };
-      }
+      queries = [
+        {
+          query: `site:linkedin.com/in "${input.recruiter_hint}" "${input.company_name}"`,
+          purpose: `Direct LinkedIn search for ${input.recruiter_hint}`,
+          platform: "linkedin" as const,
+        },
+        ...queries,
+      ];
     }
 
-    const topQueries = queryResponse.queries.slice(0, MAX_QUERIES);
+    const topQueries = queries.slice(0, MAX_QUERIES);
     queriesUsed = topQueries.map((q) => q.query);
 
-    console.log(
-      `[Generation] Phase 1 complete — ${topQueries.length} queries generated`
-    );
+    console.log(`[Generation] Phase 1 complete — ${topQueries.length} queries`);
 
-    // ── Phase 2: Execute searches + email pattern detection in parallel ───────
-    console.log(
-      `[Generation] Phase 2 — searching via ${searchProvider.providerName}`
-    );
+    // ── Phase 2: Execute searches in parallel ────────────────────────────────────
+    console.log(`[Generation] Phase 2 — searching via ${searchProvider.providerName}`);
 
     const companyDomain = extractCompanyDomain(input.job_url, input.company_name);
 
     const [searchResponses, hunterData] = await Promise.all([
-      // Contact-finding searches
       Promise.all(
         topQueries.map((q) =>
           searchProvider
             .search(q.query, RESULTS_PER_QUERY)
             .catch((err) => {
-              console.warn(
-                `[Generation] Query failed (will skip): "${q.query}" — ${err.message}`
-              );
+              console.warn(`[Generation] Query failed: "${q.query}" — ${err.message}`);
               return null;
             })
         )
       ),
-      // Hunter.io (optional, if API key is set)
       hunterDomainSearch(companyDomain).catch(() => null) as Promise<HunterResult | null>,
     ]);
 
@@ -157,91 +141,128 @@ export async function runGeneration(
       console.log(`[Generation] Hunter.io pattern="${hunterData.pattern}" for ${companyDomain}`);
     }
 
-    // Deduplicate results by URL
+    // Deduplicate by URL, sort LinkedIn profiles to the top
     const seenUrls = new Set<string>();
-    const allResults: SearchResult[] = [];
+    const rawResults: SearchResult[] = [];
 
     for (const resp of searchResponses) {
       if (!resp) continue;
       for (const r of resp.results) {
         if (!seenUrls.has(r.url) && r.snippet.trim().length > 0) {
           seenUrls.add(r.url);
-          allResults.push(r);
+          rawResults.push(r);
         }
       }
     }
 
-    // Sort results by signal quality before capping:
-    //   1. LinkedIn profile pages  → direct recruiter profiles (highest signal)
-    //   2. Apollo / RocketReach    → contact databases with emails
-    //   3. Other LinkedIn pages    → company pages, posts, etc.
-    //   4. Everything else         → generic web results
-    allResults.sort((a, b) => resultSignalScore(b.url) - resultSignalScore(a.url));
-    const aiResults = allResults.slice(0, MAX_AI_RESULTS);
+    // Sort: LinkedIn profiles first, then contact DBs, then everything else
+    rawResults.sort((a, b) => resultSignalScore(b.url) - resultSignalScore(a.url));
+
+    console.log(`[Generation] Phase 2 complete — ${rawResults.length} raw results`);
+
+    // ── Phase 2.5: Pre-filter by signal ──────────────────────────────────────────
+    const filteredResults = filterResultsBySignal(rawResults, input.company_name);
 
     console.log(
-      `[Generation] Phase 2 complete — ${allResults.length} unique results collected, top ${aiResults.length} sent to AI`
+      `[Generation] Pre-filter: ${rawResults.length} → ${filteredResults.length} signal-bearing results`
     );
 
-    // ── Phase 3: Extract contacts from real results ───────────────────────────
-    console.log(
-      `[Generation] Phase 3 — extracting contacts via ${aiProvider.providerName}`
-    );
+    // ── Phase 3: Non-AI extraction ────────────────────────────────────────────────
+    console.log("[Generation] Phase 3 — non-AI extraction from structured results");
 
-    let extractedResult;
+    const { parsed: parsedLeads, unprocessed: unparsedResults } =
+      extractWithoutAI(filteredResults, input.company_name);
 
-    const mergedHunterData: HunterResult | null = hunterData ?? null;
-
-    if (aiResults.length > 0 && aiProvider.extractContacts) {
-      extractedResult = await aiProvider.extractContacts(input, aiResults, mergedHunterData);
-    } else if (mergedHunterData && mergedHunterData.emails.length > 0 && aiProvider.extractContacts) {
-      // No search results but we have email data — extract from that alone
-      console.log("[Generation] No search results — extracting from email detective data only");
-      extractedResult = await aiProvider.extractContacts(input, [], mergedHunterData);
-    } else {
-      // No search results — return empty rather than hallucinating contacts
-      console.warn(
-        "[Generation] No search results available — returning empty leads to avoid fabrication"
-      );
-      extractedResult = {
-        company_name: input.company_name,
-        job_title: input.job_title,
-        job_url: input.job_url,
-        job_location: input.location,
-        email_pattern: null,
-        hiring_team_notes: "No search results were returned. Try regenerating or check the company name.",
-        recruiters: [],
-      };
+    // Score + generate outreach for parsed leads
+    for (const lead of parsedLeads) {
+      lead.score = scoreLead(lead, input);
+      lead.outreach_message = generateOutreachMessage(lead, input);
     }
 
-    rawResponse = JSON.stringify({
-      queries: queriesUsed,
-      result_count: aiResults.length,
-      extracted: extractedResult,
-    });
+    const dedupedParsed = deduplicateLeads(parsedLeads);
+    const highConfidenceParsed = dedupedParsed.filter(
+      (l) => l.confidence_level === "High"
+    );
 
-    // ── Phase 3.5: Fill missing emails — only apply patterns with real evidence ─
-    //
-    // Priority order (highest confidence first):
-    //   1. Hunter.io verified email (exact match for this person)
-    //   2. Hunter.io confirmed pattern (has real examples)
-    //   3. Email detective confirmed pattern (3+ real emails found)
-    //   4. Email detective likely pattern (1-2 real emails found)
-    //   5. AI-detected pattern from search snippets
-    //   6. No evidence — leave email null (do NOT guess)
+    console.log(
+      `[Generation] Non-AI: ${dedupedParsed.length} leads (${highConfidenceParsed.length} High confidence)`
+    );
 
-    // Determine the best available pattern + confidence
+    // ── Phase 3.5: AI fallback ────────────────────────────────────────────────────
+    let aiLeads: ParsedLead[] = [];
+    let emailPatternFromAI: string | null = null;
+    let hiringTeamNotes: string | null = null;
+
+    const shouldUseAI =
+      highConfidenceParsed.length < MIN_LEADS_WITHOUT_AI && !!aiProvider.extractContacts;
+
+    if (shouldUseAI) {
+      console.log(
+        `[Generation] Phase 3.5 — AI fallback (only ${highConfidenceParsed.length} high-confidence leads so far)`
+      );
+
+      // Send unparsed results first; if too few, include filtered results
+      const aiInput =
+        unparsedResults.length >= 5
+          ? unparsedResults.slice(0, MAX_AI_RESULTS)
+          : filteredResults.slice(0, MAX_AI_RESULTS);
+
+      try {
+        const aiResult = await aiProvider.extractContacts!(
+          input,
+          aiInput,
+          hunterData ?? null
+        );
+
+        emailPatternFromAI = aiResult.email_pattern ?? null;
+        hiringTeamNotes = aiResult.hiring_team_notes ?? null;
+
+        // Convert AI leads to ParsedLead format
+        aiLeads = (aiResult.recruiters ?? []).map((r) => {
+          const lead: ParsedLead = {
+            full_name: r.full_name,
+            job_title: r.job_title ?? "Recruiter / Talent Acquisition",
+            company: input.company_name,
+            location: r.location ?? null,
+            linkedin_url: r.linkedin_url ?? null,
+            email: r.email ?? null,
+            email_type: r.email_type ?? "unknown",
+            source: r.source,
+            confidence_level: r.confidence_level,
+            score: 0,
+            outreach_message: r.outreach_message ?? "",
+          };
+          lead.score = scoreLead(lead, input);
+          return lead;
+        });
+
+        console.log(`[Generation] AI fallback extracted ${aiLeads.length} additional leads`);
+      } catch (err) {
+        console.warn("[Generation] AI fallback failed:", err);
+      }
+    } else {
+      console.log("[Generation] Skipping AI — sufficient leads from non-AI extraction");
+    }
+
+    // ── Phase 4: Merge, deduplicate, rank ────────────────────────────────────────
+    const mergedLeads = deduplicateLeads([...dedupedParsed, ...aiLeads]);
+
+    // Sort by score (location match + title quality + LinkedIn presence)
+    mergedLeads.sort((a, b) => b.score - a.score);
+
+    console.log(`[Generation] Merged: ${mergedLeads.length} unique leads`);
+
+    // ── Phase 4.5: Fill emails via Hunter or AI-detected pattern ────────────────
     let bestPattern: string | null = null;
     let patternSource = "none";
 
     if (hunterData?.pattern) {
       bestPattern = hunterData.pattern;
       patternSource = "hunter";
-    } else if (extractedResult.email_pattern) {
-      // AI found something in the snippets — trust it only if it looks like a real pattern
-      const aiPattern = extractedResult.email_pattern.replace(/@.*$/, "").trim();
-      if (aiPattern && aiPattern.includes("{")) {
-        bestPattern = aiPattern;
+    } else if (emailPatternFromAI) {
+      const aiPat = emailPatternFromAI.replace(/@.*$/, "").trim();
+      if (aiPat && aiPat.includes("{")) {
+        bestPattern = aiPat;
         patternSource = "ai-detected";
       }
     }
@@ -250,70 +271,65 @@ export async function runGeneration(
       console.log(`[Generation] Applying email pattern="${bestPattern}" (source: ${patternSource})`);
     }
 
-    // Check if Hunter has a direct email for a specific person
+    // Hunter direct-email map (exact person lookup)
     const hunterEmailMap = new Map<string, string>();
     if (hunterData?.emails) {
       for (const e of hunterData.emails) {
         if (e.first_name && e.last_name) {
-          const key = `${e.first_name.toLowerCase()} ${e.last_name.toLowerCase()}`;
-          hunterEmailMap.set(key, e.email);
+          hunterEmailMap.set(
+            `${e.first_name.toLowerCase()} ${e.last_name.toLowerCase()}`,
+            e.email
+          );
         }
       }
     }
 
-    // Fix recruiter titles — if the AI accidentally set the recruiter's title
-    // to the advertised job title, reset it to a generic recruiter label
-    extractedResult.recruiters = extractedResult.recruiters.map((r: any) => {
-      const titleLower = (r.job_title ?? "").toLowerCase().trim();
+    // Apply emails + fix titles
+    const finalLeads = mergedLeads.map((lead) => {
+      // Fix title: if it accidentally matches the job title, reset to generic
+      const titleLower = lead.job_title.toLowerCase().trim();
       const jobTitleLower = input.job_title.toLowerCase().trim();
       if (titleLower === jobTitleLower || titleLower.length === 0) {
-        return { ...r, job_title: "Recruiter / Talent Acquisition" };
+        lead = { ...lead, job_title: "Recruiter / Talent Acquisition" };
       }
-      return r;
-    });
 
-    extractedResult.recruiters = extractedResult.recruiters.map((r: any) => {
-      if (r.email && r.email_type === "verified") return r; // keep verified emails
+      // Skip if already has a verified email
+      if (lead.email && lead.email_type === "verified") return lead;
 
-      const { first, last } = splitName(r.full_name ?? "");
-      if (!first || !last) return r;
+      const { first, last } = splitName(lead.full_name);
+      if (!first || !last) return lead;
 
-      // Check Hunter direct match first
+      // 1. Hunter direct match
       const hunterEmail = hunterEmailMap.get(`${first.toLowerCase()} ${last.toLowerCase()}`);
       if (hunterEmail) {
-        return { ...r, email: hunterEmail, email_type: "verified" };
+        return { ...lead, email: hunterEmail, email_type: "verified" as const };
       }
 
-      // Apply confirmed/likely pattern
+      // 2. Pattern estimation
       if (bestPattern) {
         const estimated = applyPattern(bestPattern, first, last, companyDomain);
         if (estimated) {
-          return { ...r, email: estimated, email_type: "estimated" };
+          return { ...lead, email: estimated, email_type: "estimated" as const };
         }
       }
 
-      // No evidence — don't guess
-      return { ...r, email: null, email_type: "unknown" };
+      return { ...lead, email: null, email_type: "unknown" as const };
     });
 
-    // Store the pattern we used so it shows in the UI
-    if (bestPattern && !extractedResult.email_pattern) {
-      extractedResult = {
-        ...extractedResult,
-        email_pattern: `${bestPattern}@${companyDomain}`,
-      };
-    }
+    rawResponse = JSON.stringify({
+      queries: queriesUsed,
+      result_count: filteredResults.length,
+      ai_used: shouldUseAI,
+      leads_parsed: dedupedParsed.length,
+      leads_from_ai: aiLeads.length,
+      total: finalLeads.length,
+    });
 
-    // ── Phase 4: Persist to database ─────────────────────────────────────────
-    // Delete any existing leads for this job (supports regeneration)
+    // ── Phase 5: Persist to database ─────────────────────────────────────────────
     await db.from("recruiter_leads").delete().eq("job_id", jobId);
 
-    // Save all extracted leads — confidence level is shown on the card so the
-    // user can judge themselves; filtering here was causing too few results
-    const reliableLeads = extractedResult.recruiters;
-
-    if (reliableLeads.length > 0) {
-      const leadsToInsert = reliableLeads.map((r: any) => ({
+    if (finalLeads.length > 0) {
+      const leadsToInsert = finalLeads.map((r) => ({
         job_id: jobId,
         user_id: userId,
         full_name: r.full_name,
@@ -332,150 +348,163 @@ export async function runGeneration(
         .insert(leadsToInsert);
 
       if (leadsError) {
-        throw new Error(
-          `Failed to insert recruiter leads: ${leadsError.message}`
-        );
+        throw new Error(`Failed to insert recruiter leads: ${leadsError.message}`);
       }
     }
 
-    // Update job with metadata + completed status
+    // Determine final email pattern for display
+    const displayEmailPattern =
+      bestPattern ? `${bestPattern}@${companyDomain}` : (emailPatternFromAI ?? null);
+
     await db
       .from("jobs")
       .update({
         status: "completed",
-        email_pattern: extractedResult.email_pattern ?? null,
-        hiring_team_notes: extractedResult.hiring_team_notes ?? null,
+        email_pattern: displayEmailPattern,
+        hiring_team_notes: hiringTeamNotes ?? null,
       })
       .eq("id", jobId);
 
-    // Update generation run with queries and result
     await db
       .from("generation_runs")
-      .update({
-        status: "completed",
-        raw_response: rawResponse,
-      })
+      .update({ status: "completed", raw_response: rawResponse })
       .eq("id", generationRunId);
 
-    console.log(
-      `[Generation] Done — ${reliableLeads.length} reliable leads saved (${extractedResult.recruiters.length} total extracted)`
-    );
+    console.log(`[Generation] Done — ${finalLeads.length} leads saved`);
 
-    return {
-      recruiterCount: reliableLeads.length,
-      generationRunId,
-      queriesUsed,
-    };
+    return { recruiterCount: finalLeads.length, generationRunId, queriesUsed };
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error";
-
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     console.error("[Generation] Error:", errorMessage);
 
-    await db
-      .from("jobs")
-      .update({ status: "failed" })
-      .eq("id", jobId);
-
+    await db.from("jobs").update({ status: "failed" }).eq("id", jobId);
     await db
       .from("generation_runs")
-      .update({
-        status: "failed",
-        error_message: errorMessage,
-        raw_response: rawResponse || null,
-      })
+      .update({ status: "failed", error_message: errorMessage, raw_response: rawResponse || null })
       .eq("id", generationRunId);
 
     throw error;
   }
 }
 
-// ─── Result signal scoring ─────────────────────────────────────────────────────
+// ─── Signal scoring for sort order ─────────────────────────────────────────────
 
-/**
- * Score a search result URL by how likely it is to contain a named recruiter.
- * Higher score = sent to AI first when we cap the result list.
- */
 function resultSignalScore(url: string): number {
-  if (url.includes("linkedin.com/in/")) return 4;           // direct profile page
-  if (url.includes("apollo.io") || url.includes("rocketreach.co")) return 3; // contact DB
-  if (url.includes("linkedin.com")) return 2;               // other LinkedIn pages
-  if (url.includes("github.com") || url.includes("twitter.com")) return 1;
+  if (url.includes("linkedin.com/in/")) return 4;
+  if (url.includes("apollo.io") || url.includes("rocketreach.co")) return 3;
+  if (url.includes("linkedin.com")) return 2;
   return 0;
 }
 
-// ─── LinkedIn-specific recruiter query builder ────────────────────────────────
+// ─── Dynamic query builder ─────────────────────────────────────────────────────
+
+type SearchQuery = SQR["queries"][number];
 
 /**
- * Two highly-targeted LinkedIn profile queries for jobs posted on LinkedIn.
- * These replace the first two fallback queries and surface better results
- * because they combine company + recruiter role + job title or location.
+ * Build 4 targeted search queries using the job's company, role, and location.
+ *
+ * Strategy:
+ *   Q1: Location-specific LinkedIn profiles (exact city + recruiter titles)
+ *   Q2: Role/function-specific LinkedIn profiles (finds technical recruiters for this function)
+ *   Q3: Contact database with location filter (Apollo/RocketReach → often has emails)
+ *   Q4: Email pattern discovery (domain + recruiter context)
+ *
+ * For LinkedIn jobs, Q1+Q2 are replaced with more targeted LinkedIn-specific variants.
  */
-function buildLinkedInRecruiterQueries(input: RecruiterSearchInput): import("@/types/ai").SearchQueriesResponse["queries"] {
-  const { company_name, job_title, location } = input;
+function buildDynamicQueries(input: RecruiterSearchInput): SearchQuery[] {
+  const { company_name, job_title, location, job_url } = input;
+  const slug = company_name.toLowerCase().replace(/\s+/g, "");
+  const isLinkedIn = job_url.includes("linkedin.com/jobs");
 
+  // Parse location into city + state components
   const locations = location.split(/[\/,;]|\band\b/i).map((l) => l.trim()).filter(Boolean);
   const primaryLocation = locations[0];
+  const { city, state } = parseLocationParts(primaryLocation);
+  const locationStr = city ?? primaryLocation;
 
-  return [
-    {
-      // Best: recruiter at company who matches this role's function
-      query: `site:linkedin.com/in "${company_name}" "talent acquisition" OR "technical recruiter" OR "recruiter" "${job_title}"`,
-      purpose: "LinkedIn recruiter profile matching job title",
-      platform: "linkedin" as const,
-    },
-    {
-      // Second best: TA staff in the job's city
-      query: `site:linkedin.com/in "${company_name}" "talent acquisition" OR "recruiter" "${primaryLocation}"`,
-      purpose: "LinkedIn TA profiles in job location",
-      platform: "linkedin" as const,
-    },
-  ];
+  // Determine the job function for role-aware queries
+  const jobFunction = extractJobFunction(job_title);
+
+  const queries: SearchQuery[] = [];
+
+  if (isLinkedIn) {
+    // LinkedIn jobs: more aggressive LinkedIn profile targeting
+    queries.push({
+      query: `site:linkedin.com/in "${company_name}" ("technical recruiter" OR "talent acquisition" OR "recruiter") "${locationStr}"`,
+      purpose: `LinkedIn recruiter profiles in ${locationStr}`,
+      platform: "linkedin",
+    });
+    queries.push({
+      query: `site:linkedin.com/in "${company_name}" "${jobFunction ? jobFunction + " recruiter" : "talent acquisition"}" OR "technical recruiter" OR "sourcer"`,
+      purpose: `LinkedIn ${jobFunction ?? "TA"} recruiter profiles`,
+      platform: "linkedin",
+    });
+  } else {
+    // Non-LinkedIn: location-anchored + role-anchored
+    queries.push({
+      query: `site:linkedin.com/in "${company_name}" ("recruiter" OR "talent acquisition") "${locationStr}"`,
+      purpose: `LinkedIn TA profiles in ${locationStr}`,
+      platform: "linkedin",
+    });
+    queries.push({
+      query: `site:linkedin.com/in "${company_name}" "${jobFunction ? jobFunction + " recruiter" : "talent acquisition"}" OR "technical recruiter"`,
+      purpose: `LinkedIn recruiter matching job function`,
+      platform: "linkedin",
+    });
+  }
+
+  // Contact database — often surfaces emails directly, filtered by location
+  queries.push({
+    query: `"${company_name}" recruiter "${locationStr}" site:apollo.io OR site:rocketreach.co`,
+    purpose: `Contact database: recruiters in ${locationStr}`,
+    platform: "google",
+  });
+
+  // Email pattern discovery
+  queries.push({
+    query: `"${company_name}" "@${slug}.com" recruiter OR "talent acquisition" "${locationStr}"`,
+    purpose: "Email pattern + location-specific recruiter",
+    platform: "google",
+  });
+
+  // If multiple locations, add one more query for the secondary location
+  if (locations.length > 1) {
+    const secondCity = parseLocationParts(locations[1]).city ?? locations[1];
+    queries.push({
+      query: `site:linkedin.com/in "${company_name}" ("recruiter" OR "talent acquisition") "${secondCity}"`,
+      purpose: `LinkedIn TA profiles in ${secondCity}`,
+      platform: "linkedin",
+    });
+  }
+
+  return queries;
 }
 
-// ─── Fallback query builder ────────────────────────────────────────────────────
+// ─── Location parsing ──────────────────────────────────────────────────────────
 
-import type { SearchQueriesResponse as SQR } from "@/types/ai";
+function parseLocationParts(location: string): { city: string | null; state: string | null } {
+  const parts = location.split(",").map((p) => p.trim());
+  const remoteWords = ["remote", "worldwide", "global", "anywhere"];
+  const city =
+    parts[0] && !remoteWords.includes(parts[0].toLowerCase()) ? parts[0] : null;
+  const state = parts[1] ?? null;
+  return { city, state };
+}
 
-/**
- * Four focused queries — two LinkedIn profile searches + two email/contact lookups.
- * Dropped the two weakest queries from the old set of six:
- *  - "all LinkedIn recruiter profiles" (overlapped with q1+q2)
- *  - "TA team contact info" (generic, low signal)
- * This saves 2 Serper credits per run with no quality loss.
- */
-function buildFallbackQueries(input: RecruiterSearchInput): SQR {
-  const { company_name, job_title, location } = input;
-  const slug = company_name.toLowerCase().replace(/\s+/g, "");
-  const locations = location.split(/[\/,;]|\band\b/i).map((l) => l.trim()).filter(Boolean);
-  const primaryLocation = locations[0];
+// ─── Job function extractor ────────────────────────────────────────────────────
 
-  return {
-    queries: [
-      {
-        // Location-anchored LinkedIn profile search (most targeted)
-        query: `site:linkedin.com/in "${company_name}" "recruiter" OR "talent acquisition" "${primaryLocation}"`,
-        purpose: "LinkedIn TA profiles in job location",
-        platform: "linkedin" as const,
-      },
-      {
-        // Role-anchored LinkedIn profile search
-        query: `site:linkedin.com/in "${company_name}" "talent acquisition" OR "technical recruiter" "${job_title}"`,
-        purpose: "LinkedIn recruiter profiles matching role",
-        platform: "linkedin" as const,
-      },
-      {
-        // Contact database — often surfaces emails directly
-        query: `"${company_name}" recruiter email site:apollo.io OR site:rocketreach.co`,
-        purpose: "Contact database lookup",
-        platform: "google" as const,
-      },
-      {
-        // Email pattern discovery from real indexed emails
-        query: `"${company_name}" "@${slug}.com" recruiter OR "talent acquisition"`,
-        purpose: "Email pattern + recruiter discovery",
-        platform: "google" as const,
-      },
-    ],
-  };
+function extractJobFunction(jobTitle: string): string | null {
+  const t = jobTitle.toLowerCase();
+  if (/software|engineer|developer|swe|backend|frontend|fullstack|mobile|ios|android/.test(t))
+    return "engineering";
+  if (/data|ml\b|machine learning|\bai\b|analytics|scientist/.test(t)) return "data";
+  if (/\bproduct\b|program manager|\bpm\b/.test(t)) return "product";
+  if (/design|ux\b|ui\b/.test(t)) return "design";
+  if (/sales|account executive|business development|bdr|sdr/.test(t)) return "sales";
+  if (/marketing|growth|seo|content/.test(t)) return "marketing";
+  if (/finance|accounting|financial/.test(t)) return "finance";
+  if (/operations|\bops\b|supply chain/.test(t)) return "operations";
+  if (/devops|sre\b|infrastructure|cloud|platform/.test(t)) return "infrastructure";
+  if (/security|cybersecurity|infosec/.test(t)) return "security";
+  return null;
 }
