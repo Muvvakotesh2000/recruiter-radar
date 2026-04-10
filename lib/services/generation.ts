@@ -93,21 +93,31 @@ export async function runGeneration(
       queryResponse = buildFallbackQueries(input);
     }
 
-    // For LinkedIn job postings, inject guaranteed recruiter-finding queries at
-    // the front — these are hardcoded and proven, so they replace the last AI
-    // queries rather than adding extra search cost
-    const isLinkedIn = input.job_url.includes("linkedin.com/jobs");
-    if (isLinkedIn) {
-      const liQueries = buildLinkedInRecruiterQueries(input);
-      // Prepend LinkedIn-specific queries, keep total at MAX_QUERIES
-      queryResponse = {
-        queries: [
-          ...liQueries,
-          ...queryResponse.queries.filter(
-            (q) => !liQueries.some((lq) => lq.query === q.query)
-          ),
-        ],
+    // If user provided a recruiter name hint, inject a direct profile search
+    // as the very first query — this is the most targeted possible search
+    if (input.recruiter_hint) {
+      const hintQuery = {
+        query: `site:linkedin.com/in "${input.recruiter_hint}" "${input.company_name}"`,
+        purpose: `Direct LinkedIn profile search for ${input.recruiter_hint}`,
+        platform: "linkedin" as const,
       };
+      queryResponse = {
+        queries: [hintQuery, ...queryResponse.queries],
+      };
+    } else {
+      // For LinkedIn job postings without a hint, inject proven recruiter queries
+      const isLinkedIn = input.job_url.includes("linkedin.com/jobs");
+      if (isLinkedIn) {
+        const liQueries = buildLinkedInRecruiterQueries(input);
+        queryResponse = {
+          queries: [
+            ...liQueries,
+            ...queryResponse.queries.filter(
+              (q) => !liQueries.some((lq) => lq.query === q.query)
+            ),
+          ],
+        };
+      }
     }
 
     const topQueries = queryResponse.queries.slice(0, MAX_QUERIES);

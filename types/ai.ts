@@ -36,6 +36,8 @@ export interface RecruiterSearchInput {
   job_title: string;
   job_url: string;
   location: string;
+  /** Optional name hint from "Meet the Hiring Team" or job description */
+  recruiter_hint?: string;
 }
 
 // ─── Provider Interface ────────────────────────────────────────────────────────

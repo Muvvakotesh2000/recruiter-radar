@@ -87,6 +87,7 @@ export async function POST(request: NextRequest) {
           job_title: input.job_title,
           job_url: input.job_url ?? "",
           location: input.location ?? "",
+          recruiter_hint: input.recruiter_hint,
         },
       }).catch((err) => {
         console.error(`[API /generate] Background generation failed for job ${job.id}:`, err);

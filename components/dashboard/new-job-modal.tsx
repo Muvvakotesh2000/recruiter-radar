@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
-import { Building2, Briefcase, Link as LinkIcon, MapPin, Sparkles } from "lucide-react";
+import { Building2, Briefcase, Link as LinkIcon, MapPin, Sparkles, User } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -39,11 +39,15 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors },
     reset,
   } = useForm<JobSubmitInput>({
     resolver: zodResolver(JobSubmitSchema),
   });
+
+  const jobUrl = watch("job_url", "");
+  const isLinkedIn = jobUrl.includes("linkedin.com/jobs");
 
   async function onSubmit(data: JobSubmitInput) {
     setIsGenerating(true);
@@ -160,6 +164,25 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
                   Paste the full URL from LinkedIn, Greenhouse, Lever, etc.
                 </p>
               </div>
+
+              {isLinkedIn && (
+                <div className="space-y-2">
+                  <Label htmlFor="recruiter_hint">
+                    Recruiter Name{" "}
+                    <span className="text-muted-foreground font-normal">(optional)</span>
+                  </Label>
+                  <Input
+                    id="recruiter_hint"
+                    placeholder="e.g. Sarah Chen"
+                    icon={<User className="w-4 h-4" />}
+                    {...register("recruiter_hint")}
+                    error={errors.recruiter_hint?.message}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Found under <span className="text-violet-400">"Meet the Hiring Team"</span> on the LinkedIn job page. Paste their name for a direct match.
+                  </p>
+                </div>
+              )}
 
               <Button
                 type="submit"

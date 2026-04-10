@@ -131,9 +131,15 @@ Snippet: ${r.snippet}${r.content ? `\nContent: ${r.content.slice(0, 600)}` : ""}
     hunterBlock = "\n\n" + lines.join("\n");
   }
 
+  // Recruiter name hint from user (highest priority)
+  const recruiterHintBlock = input.recruiter_hint
+    ? `\n\nRECRUITER HINT (provided by the user — treat as highest priority):
+The user identified "${input.recruiter_hint}" as the recruiter from the job posting's "Meet the Hiring Team" section. Find this person's LinkedIn profile in the search results and include them as a High confidence contact. Their actual recruiter title should come from their LinkedIn profile, not from the job being advertised.`
+    : "";
+
   // LinkedIn-specific instruction
   const isLinkedIn = job_url.includes("linkedin.com/jobs");
-  const linkedInHint = isLinkedIn
+  const linkedInHint = isLinkedIn && !input.recruiter_hint
     ? `\n\nLINKEDIN NOTE: This job was posted on LinkedIn. If any search result shows a LinkedIn profile (linkedin.com/in/...) where the person is described as a recruiter or talent acquisition partner at "${company_name}" — especially one who mentions this role or "${job_title}" — treat them as the highest-priority contact (High confidence).`
     : "";
 
@@ -145,7 +151,7 @@ JOB CONTEXT:
 - Role: ${job_title}
 - Location(s): ${locationDisplay}
 - Job URL: ${job_url}
-${hunterBlock}${linkedInHint}
+${hunterBlock}${recruiterHintBlock}${linkedInHint}
 
 SEARCH RESULTS (real web data):
 ${formattedResults}

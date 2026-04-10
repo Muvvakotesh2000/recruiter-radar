@@ -17,6 +17,11 @@ export const JobSubmitSchema = z.object({
     .string()
     .min(1, "Location is required")
     .max(200, "Location is too long"),
+  recruiter_hint: z
+    .string()
+    .max(200)
+    .optional()
+    .transform((v) => v?.trim() || undefined),
 });
 
 export type JobSubmitInput = z.infer<typeof JobSubmitSchema>;
