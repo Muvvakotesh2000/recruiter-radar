@@ -40,10 +40,13 @@ interface GenerationResult {
 }
 
 /** Max queries to execute in parallel. */
-const MAX_QUERIES = 4;
+const MAX_QUERIES = 5;
 
-/** Max results per query from Serper. */
-const RESULTS_PER_QUERY = 10;
+/**
+ * Results per query. Serper charges per API call, not per result,
+ * so fetching 20 instead of 10 doubles coverage at the same credit cost.
+ */
+const RESULTS_PER_QUERY = 20;
 
 /**
  * If non-AI parsing yields at least this many High-confidence leads,
@@ -55,7 +58,7 @@ const MIN_LEADS_WITHOUT_AI = 3;
  * Max results forwarded to the AI fallback.
  * Sorted by signal quality before slicing.
  */
-const MAX_AI_RESULTS = 20;
+const MAX_AI_RESULTS = 25;
 
 export async function runGeneration(
   options: GenerationOptions
@@ -427,25 +430,38 @@ function buildDynamicQueries(input: RecruiterSearchInput): SearchQuery[] {
 
   const queries: SearchQuery[] = [];
 
-  if (isLinkedIn) {
-    // LinkedIn jobs: more aggressive LinkedIn profile targeting
+  // Q1: Exact city + recruiter titles (most targeted)
+  queries.push({
+    query: `site:linkedin.com/in "${company_name}" ("technical recruiter" OR "talent acquisition" OR "recruiter") "${locationStr}"`,
+    purpose: `LinkedIn recruiter profiles in ${locationStr}`,
+    platform: "linkedin",
+  });
+
+  // Q2: State/region fallback — catches people listed as "Texas" instead of "Austin"
+  const regionStr = state ?? locationStr;
+  if (regionStr.toLowerCase() !== locationStr.toLowerCase()) {
     queries.push({
-      query: `site:linkedin.com/in "${company_name}" ("technical recruiter" OR "talent acquisition" OR "recruiter") "${locationStr}"`,
-      purpose: `LinkedIn recruiter profiles in ${locationStr}`,
+      query: `site:linkedin.com/in "${company_name}" ("recruiter" OR "talent acquisition") "${regionStr}"`,
+      purpose: `LinkedIn TA profiles in ${regionStr} (state fallback)`,
       platform: "linkedin",
     });
+  } else {
+    // No state available — use broader company-only LinkedIn search
+    queries.push({
+      query: `site:linkedin.com/in "${company_name}" "talent acquisition" OR "technical recruiter" OR "sourcer" OR "recruiter"`,
+      purpose: "LinkedIn TA profiles at company (broad)",
+      platform: "linkedin",
+    });
+  }
+
+  // Q3: Role/function-specific LinkedIn — finds "engineering recruiter" for SWE roles, etc.
+  if (isLinkedIn) {
     queries.push({
       query: `site:linkedin.com/in "${company_name}" "${jobFunction ? jobFunction + " recruiter" : "talent acquisition"}" OR "technical recruiter" OR "sourcer"`,
       purpose: `LinkedIn ${jobFunction ?? "TA"} recruiter profiles`,
       platform: "linkedin",
     });
   } else {
-    // Non-LinkedIn: location-anchored + role-anchored
-    queries.push({
-      query: `site:linkedin.com/in "${company_name}" ("recruiter" OR "talent acquisition") "${locationStr}"`,
-      purpose: `LinkedIn TA profiles in ${locationStr}`,
-      platform: "linkedin",
-    });
     queries.push({
       query: `site:linkedin.com/in "${company_name}" "${jobFunction ? jobFunction + " recruiter" : "talent acquisition"}" OR "technical recruiter"`,
       purpose: `LinkedIn recruiter matching job function`,
@@ -453,27 +469,33 @@ function buildDynamicQueries(input: RecruiterSearchInput): SearchQuery[] {
     });
   }
 
-  // Contact database — often surfaces emails directly, filtered by location
+  // Q4: Contact database with location — often surfaces emails directly
   queries.push({
     query: `"${company_name}" recruiter "${locationStr}" site:apollo.io OR site:rocketreach.co`,
     purpose: `Contact database: recruiters in ${locationStr}`,
     platform: "google",
   });
 
-  // Email pattern discovery
+  // Q5: Email pattern + broader recruiter discovery
   queries.push({
-    query: `"${company_name}" "@${slug}.com" recruiter OR "talent acquisition" "${locationStr}"`,
-    purpose: "Email pattern + location-specific recruiter",
+    query: `"${company_name}" "@${slug}.com" recruiter OR "talent acquisition"`,
+    purpose: "Email pattern discovery + recruiter context",
     platform: "google",
   });
 
-  // If multiple locations, add one more query for the secondary location
+  // For multiple locations, replace Q5 with a second-city LinkedIn query
   if (locations.length > 1) {
     const secondCity = parseLocationParts(locations[1]).city ?? locations[1];
-    queries.push({
+    queries[queries.length - 1] = {
       query: `site:linkedin.com/in "${company_name}" ("recruiter" OR "talent acquisition") "${secondCity}"`,
       purpose: `LinkedIn TA profiles in ${secondCity}`,
       platform: "linkedin",
+    };
+    // Still add email pattern as Q6 (will be sliced to MAX_QUERIES anyway)
+    queries.push({
+      query: `"${company_name}" "@${slug}.com" recruiter OR "talent acquisition"`,
+      purpose: "Email pattern discovery",
+      platform: "google",
     });
   }
 

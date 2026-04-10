@@ -36,7 +36,7 @@ export class SerperSearchProvider implements SearchProvider {
       },
       body: JSON.stringify({
         q: query,
-        num: Math.min(maxResults, 10),
+        num: Math.min(maxResults, 100), // Serper charges per call, not per result — get as many as needed
         gl: "us",
         hl: "en",
       }),
