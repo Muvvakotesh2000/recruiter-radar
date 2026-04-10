@@ -133,10 +133,13 @@ export function extractLocation(text: string): string | null {
 // ─── LinkedIn profile parser ─────────────────────────────────────────────────────
 
 /**
- * Google indexes LinkedIn profiles with a predictable title format:
- *   "FirstName LastName - Job Title at Company | LinkedIn"
+ * Google indexes LinkedIn profiles in several title formats:
+ *   "Name - Title at Company | LinkedIn"          ← most common
+ *   "Name - Title · Company | LinkedIn"           ← middle-dot variant
+ *   "Name - Company Name | LinkedIn"              ← no explicit title
+ *   "Name | LinkedIn"                             ← name only
  *
- * This parser extracts name, title, company without any AI call.
+ * Try each format in order, fall back to snippet parsing.
  */
 export function parseLinkedInResult(
   result: SearchResult,
@@ -144,21 +147,61 @@ export function parseLinkedInResult(
 ): ParsedLead | null {
   if (!result.url.includes("linkedin.com/in/")) return null;
 
-  // Match: "Name - Title at Company | LinkedIn"
-  // Handles: "Name – Title at Company, City | LinkedIn"
-  const m = result.title.match(
-    /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,80}?)\s+(?:at|@)\s+([^|,]{3,55}?)(?:,\s*[^|]+?)?\s*\|/
+  let rawName: string | null = null;
+  let rawTitle: string | null = null;
+  let rawCompany: string | null = null;
+
+  // Format 1: "Name - Title at Company | LinkedIn"  (standard)
+  // Format 1b: "Name – Title at Company, City | LinkedIn"
+  const m1 = result.title.match(
+    /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,80}?)\s+(?:at|@)\s+([^|,·•]{3,55}?)(?:,\s*[^|]+?)?\s*[|·]/
   );
+  if (m1) {
+    [, rawName, rawTitle, rawCompany] = m1;
+  }
 
-  if (!m) return null;
+  // Format 2: "Name - Title · Company | LinkedIn"  (middle dot separator)
+  if (!rawName) {
+    const m2 = result.title.match(
+      /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,80}?)\s*[·•]\s*([^|,]{3,55}?)\s*\|/
+    );
+    if (m2) {
+      [, rawName, rawTitle, rawCompany] = m2;
+    }
+  }
 
-  const [, rawName, rawTitle, rawCompany] = m;
+  // Format 3: "Name - Company | LinkedIn"  (no title in heading — get title from snippet)
+  if (!rawName) {
+    const m3 = result.title.match(
+      /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*([^|·•]{3,55}?)\s*\|/
+    );
+    if (m3) {
+      rawName = m3[1];
+      rawCompany = m3[2];
+      // Title must come from snippet
+      const snippetTitle = result.snippet.match(
+        /\b((?:senior |lead |principal |staff )?(?:technical recruiter|talent acquisition[a-z\s]*|recruiter|sourcer|staffing[a-z\s]*))/i
+      );
+      rawTitle = snippetTitle?.[1] ?? null;
+    }
+  }
 
-  if (!fuzzyCompanyMatch(rawCompany.trim(), companyName)) return null;
+  if (!rawName) return null;
 
-  const titleClass = classifyTitle(rawTitle.trim());
-  // Only include results with a recognizable recruiter or hiring title
-  if (titleClass === "noise" || titleClass === "unknown") return null;
+  // Verify company match
+  const companyToCheck = rawCompany ?? "";
+  const companyInSnippet = result.snippet.toLowerCase().includes(companyName.toLowerCase());
+  if (companyToCheck && !fuzzyCompanyMatch(companyToCheck.trim(), companyName) && !companyInSnippet) {
+    return null;
+  }
+  if (!companyToCheck && !companyInSnippet) return null;
+
+  // Title classification
+  const titleClass = classifyTitle((rawTitle ?? "").trim());
+  if (titleClass === "noise") return null;
+
+  // If title is unknown AND no company match in snippet, skip — too ambiguous
+  if (titleClass === "unknown" && !rawTitle) return null;
 
   const location =
     extractLocation(result.snippet) ?? extractLocation(result.title);
@@ -166,10 +209,12 @@ export function parseLinkedInResult(
   const emailMatch = result.snippet.match(/\b[\w.+%-]{2,30}@[\w.-]+\.[a-z]{2,}\b/i);
   const email = emailMatch?.[0]?.toLowerCase() ?? null;
 
+  const jobTitle = rawTitle?.trim() || "Recruiter / Talent Acquisition";
+
   return {
     full_name: rawName.trim(),
-    job_title: rawTitle.trim(),
-    company: rawCompany.trim(),
+    job_title: jobTitle,
+    company: (rawCompany ?? companyName).trim(),
     location,
     linkedin_url: result.url,
     email,

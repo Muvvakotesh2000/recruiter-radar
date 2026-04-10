@@ -430,74 +430,45 @@ function buildDynamicQueries(input: RecruiterSearchInput): SearchQuery[] {
 
   const queries: SearchQuery[] = [];
 
-  // Q1: Exact city + recruiter titles (most targeted)
+  // Q1: Exact city + "recruiter" — simple, no parentheses (Google handles these better)
   queries.push({
-    query: `site:linkedin.com/in "${company_name}" ("technical recruiter" OR "talent acquisition" OR "recruiter") "${locationStr}"`,
-    purpose: `LinkedIn recruiter profiles in ${locationStr}`,
+    query: `site:linkedin.com/in "${company_name}" "recruiter" "${locationStr}"`,
+    purpose: `LinkedIn recruiters in ${locationStr}`,
     platform: "linkedin",
   });
 
-  // Q2: State/region fallback — catches people listed as "Texas" instead of "Austin"
+  // Q2: Exact city + "talent acquisition" — separate query covers different title phrasing
+  queries.push({
+    query: `site:linkedin.com/in "${company_name}" "talent acquisition" "${locationStr}"`,
+    purpose: `LinkedIn talent acquisition in ${locationStr}`,
+    platform: "linkedin",
+  });
+
+  // Q3: State/region fallback OR function-specific — catches broader location or role match
   const regionStr = state ?? locationStr;
   if (regionStr.toLowerCase() !== locationStr.toLowerCase()) {
+    // Have a state — search at state level to catch "Texas" instead of "Austin"
     queries.push({
-      query: `site:linkedin.com/in "${company_name}" ("recruiter" OR "talent acquisition") "${regionStr}"`,
+      query: `site:linkedin.com/in "${company_name}" "recruiter" OR "talent acquisition" "${regionStr}"`,
       purpose: `LinkedIn TA profiles in ${regionStr} (state fallback)`,
       platform: "linkedin",
     });
   } else {
-    // No state available — use broader company-only LinkedIn search
+    // No state — use function-specific query
+    const funcTitle = jobFunction ? `"${jobFunction} recruiter"` : `"technical recruiter"`;
     queries.push({
-      query: `site:linkedin.com/in "${company_name}" "talent acquisition" OR "technical recruiter" OR "sourcer" OR "recruiter"`,
-      purpose: "LinkedIn TA profiles at company (broad)",
+      query: `site:linkedin.com/in "${company_name}" ${funcTitle} OR "talent acquisition"`,
+      purpose: `LinkedIn ${jobFunction ?? "technical"} recruiter profiles`,
       platform: "linkedin",
     });
   }
 
-  // Q3: Role/function-specific LinkedIn — finds "engineering recruiter" for SWE roles, etc.
-  if (isLinkedIn) {
-    queries.push({
-      query: `site:linkedin.com/in "${company_name}" "${jobFunction ? jobFunction + " recruiter" : "talent acquisition"}" OR "technical recruiter" OR "sourcer"`,
-      purpose: `LinkedIn ${jobFunction ?? "TA"} recruiter profiles`,
-      platform: "linkedin",
-    });
-  } else {
-    queries.push({
-      query: `site:linkedin.com/in "${company_name}" "${jobFunction ? jobFunction + " recruiter" : "talent acquisition"}" OR "technical recruiter"`,
-      purpose: `LinkedIn recruiter matching job function`,
-      platform: "linkedin",
-    });
-  }
-
-  // Q4: Contact database with location — often surfaces emails directly
+  // Q4: Contact database — Apollo/RocketReach with location, often surfaces emails
   queries.push({
     query: `"${company_name}" recruiter "${locationStr}" site:apollo.io OR site:rocketreach.co`,
-    purpose: `Contact database: recruiters in ${locationStr}`,
+    purpose: `Contact DB: recruiters in ${locationStr}`,
     platform: "google",
   });
-
-  // Q5: Email pattern + broader recruiter discovery
-  queries.push({
-    query: `"${company_name}" "@${slug}.com" recruiter OR "talent acquisition"`,
-    purpose: "Email pattern discovery + recruiter context",
-    platform: "google",
-  });
-
-  // For multiple locations, replace Q5 with a second-city LinkedIn query
-  if (locations.length > 1) {
-    const secondCity = parseLocationParts(locations[1]).city ?? locations[1];
-    queries[queries.length - 1] = {
-      query: `site:linkedin.com/in "${company_name}" ("recruiter" OR "talent acquisition") "${secondCity}"`,
-      purpose: `LinkedIn TA profiles in ${secondCity}`,
-      platform: "linkedin",
-    };
-    // Still add email pattern as Q6 (will be sliced to MAX_QUERIES anyway)
-    queries.push({
-      query: `"${company_name}" "@${slug}.com" recruiter OR "talent acquisition"`,
-      purpose: "Email pattern discovery",
-      platform: "google",
-    });
-  }
 
   return queries;
 }
