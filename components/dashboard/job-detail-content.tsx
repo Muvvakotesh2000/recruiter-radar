@@ -116,7 +116,10 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
   }, [job.id, job.status, router]);
 
   const status = getStatusColor(job.status);
-  const leads = job.recruiter_leads ?? [];
+  const CONFIDENCE_ORDER: Record<string, number> = { High: 0, Medium: 1, Low: 2 };
+  const leads = (job.recruiter_leads ?? []).slice().sort(
+    (a, b) => (CONFIDENCE_ORDER[a.confidence_level] ?? 3) - (CONFIDENCE_ORDER[b.confidence_level] ?? 3)
+  );
   const emailLeads = leads.filter((l) => l.email);
   const companyDomain = extractCompanyDomain(job.job_url, job.company_name);
 
