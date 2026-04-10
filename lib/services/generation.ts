@@ -12,7 +12,6 @@ import { getAIProvider } from "@/lib/ai/factory";
 import { getSearchProvider } from "@/lib/search/factory";
 import { buildRecruiterPrompt, buildSystemPrompt } from "@/lib/ai/prompt";
 import { hunterDomainSearch, extractCompanyDomain } from "@/lib/services/hunter";
-import { detectEmailPattern } from "@/lib/services/email-detective";
 import { applyPattern, splitName } from "@/lib/utils/email-patterns";
 import type { RecruiterSearchInput, SearchQueriesResponse } from "@/types/ai";
 import type { SearchResult } from "@/lib/search/base";
@@ -33,8 +32,8 @@ interface GenerationResult {
 /** Max queries to execute in parallel. Keeps latency under control. */
 const MAX_QUERIES = 6;
 
-/** Max results per query */
-const RESULTS_PER_QUERY = 10;
+/** Max results per query — 8 balances quality vs AI token cost */
+const RESULTS_PER_QUERY = 8;
 
 export async function runGeneration(
   options: GenerationOptions
@@ -129,7 +128,7 @@ export async function runGeneration(
 
     const companyDomain = extractCompanyDomain(input.job_url, input.company_name);
 
-    const [searchResponses, hunterData, emailPatternResult] = await Promise.all([
+    const [searchResponses, hunterData] = await Promise.all([
       // Contact-finding searches
       Promise.all(
         topQueries.map((q) =>
@@ -145,17 +144,10 @@ export async function runGeneration(
       ),
       // Hunter.io (optional, if API key is set)
       hunterDomainSearch(companyDomain).catch(() => null) as Promise<HunterResult | null>,
-      // Email detective — 2 targeted searches to find the real email pattern
-      detectEmailPattern(companyDomain, searchProvider).catch(() => null),
     ]);
 
     if (hunterData?.pattern) {
       console.log(`[Generation] Hunter.io pattern="${hunterData.pattern}" for ${companyDomain}`);
-    }
-    if (emailPatternResult?.confidence !== "none") {
-      console.log(
-        `[Generation] Email detective: pattern="${emailPatternResult?.pattern}" confidence="${emailPatternResult?.confidence}" examples=${JSON.stringify(emailPatternResult?.examples)}`
-      );
     }
 
     // Deduplicate results by URL
@@ -183,23 +175,7 @@ export async function runGeneration(
 
     let extractedResult;
 
-    // Merge Hunter data with email detective results so AI gets the full picture
-    const mergedHunterData: HunterResult | null = hunterData ?? (
-      emailPatternResult?.pattern && emailPatternResult.confidence !== "none"
-        ? {
-            pattern: emailPatternResult.pattern,
-            domain: companyDomain,
-            emails: emailPatternResult.examples.map((e) => ({
-              email: e,
-              first_name: null,
-              last_name: null,
-              position: null,
-              confidence: 70,
-              linkedin_url: null,
-            })),
-          }
-        : null
-    );
+    const mergedHunterData: HunterResult | null = hunterData ?? null;
 
     if (allResults.length > 0 && aiProvider.extractContacts) {
       extractedResult = await aiProvider.extractContacts(input, allResults, mergedHunterData);
