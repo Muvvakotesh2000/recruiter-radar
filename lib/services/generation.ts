@@ -93,6 +93,23 @@ export async function runGeneration(
       queryResponse = buildFallbackQueries(input);
     }
 
+    // For LinkedIn job postings, inject guaranteed recruiter-finding queries at
+    // the front — these are hardcoded and proven, so they replace the last AI
+    // queries rather than adding extra search cost
+    const isLinkedIn = input.job_url.includes("linkedin.com/jobs");
+    if (isLinkedIn) {
+      const liQueries = buildLinkedInRecruiterQueries(input);
+      // Prepend LinkedIn-specific queries, keep total at MAX_QUERIES
+      queryResponse = {
+        queries: [
+          ...liQueries,
+          ...queryResponse.queries.filter(
+            (q) => !liQueries.some((lq) => lq.query === q.query)
+          ),
+        ],
+      };
+    }
+
     const topQueries = queryResponse.queries.slice(0, MAX_QUERIES);
     queriesUsed = topQueries.map((q) => q.query);
 
@@ -379,6 +396,45 @@ export async function runGeneration(
 
     throw error;
   }
+}
+
+// ─── LinkedIn-specific recruiter query builder ────────────────────────────────
+
+/**
+ * Hardcoded, proven search queries for finding the recruiter who posted a
+ * LinkedIn job. These bypass AI generation for this specific case and are
+ * prepended to the query list so they run first.
+ *
+ * Strategy: search LinkedIn profiles directly for company TA/recruiter staff.
+ * Google indexes public LinkedIn profiles and their headlines, so these queries
+ * reliably surface recruiter profiles at the target company.
+ */
+function buildLinkedInRecruiterQueries(input: RecruiterSearchInput): import("@/types/ai").SearchQueriesResponse["queries"] {
+  const { company_name, job_title, location } = input;
+
+  const locations = location.split(/[\/,;]|\band\b/i).map((l) => l.trim()).filter(Boolean);
+  const primaryLocation = locations[0];
+
+  return [
+    {
+      // Most reliable: find TA/recruiter profiles at the company with the job title
+      query: `site:linkedin.com/in "${company_name}" "talent acquisition" OR "technical recruiter" OR "recruiter" "${job_title}"`,
+      purpose: "LinkedIn recruiter profile matching job title",
+      platform: "linkedin" as const,
+    },
+    {
+      // Location-anchored: find TA staff in the job's city
+      query: `site:linkedin.com/in "${company_name}" "talent acquisition" OR "recruiter" "${primaryLocation}"`,
+      purpose: "LinkedIn TA profiles in job location",
+      platform: "linkedin" as const,
+    },
+    {
+      // Broader: any recruiter/HR at this company (no location filter)
+      query: `site:linkedin.com/in "${company_name}" "recruiter" OR "talent acquisition" OR "hiring" -jobs -job-posting`,
+      purpose: "All LinkedIn recruiter profiles at company",
+      platform: "linkedin" as const,
+    },
+  ];
 }
 
 // ─── Fallback query builder ────────────────────────────────────────────────────
