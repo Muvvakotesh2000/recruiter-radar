@@ -86,7 +86,7 @@ export function buildExtractionPrompt(
     .map((r, i) =>
       `[${i + 1}] ${r.title}
 ${r.url}
-${r.snippet.slice(0, 150)}`
+${r.snippet.slice(0, 120)}`
     )
     .join("\n\n");
 

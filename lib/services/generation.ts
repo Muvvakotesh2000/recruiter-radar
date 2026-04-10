@@ -30,10 +30,17 @@ interface GenerationResult {
 }
 
 /** Max queries to execute in parallel. Keeps latency under control. */
-const MAX_QUERIES = 6;
+const MAX_QUERIES = 4;
 
 /** Max results per query */
 const RESULTS_PER_QUERY = 10;
+
+/**
+ * Max results forwarded to the AI extraction step.
+ * Capping at 30 cuts token cost ~50% while improving quality — we sort
+ * LinkedIn profiles and contact-DB pages to the top before slicing.
+ */
+const MAX_AI_RESULTS = 30;
 
 export async function runGeneration(
   options: GenerationOptions
@@ -164,8 +171,16 @@ export async function runGeneration(
       }
     }
 
+    // Sort results by signal quality before capping:
+    //   1. LinkedIn profile pages  → direct recruiter profiles (highest signal)
+    //   2. Apollo / RocketReach    → contact databases with emails
+    //   3. Other LinkedIn pages    → company pages, posts, etc.
+    //   4. Everything else         → generic web results
+    allResults.sort((a, b) => resultSignalScore(b.url) - resultSignalScore(a.url));
+    const aiResults = allResults.slice(0, MAX_AI_RESULTS);
+
     console.log(
-      `[Generation] Phase 2 complete — ${allResults.length} unique results collected`
+      `[Generation] Phase 2 complete — ${allResults.length} unique results collected, top ${aiResults.length} sent to AI`
     );
 
     // ── Phase 3: Extract contacts from real results ───────────────────────────
@@ -177,8 +192,8 @@ export async function runGeneration(
 
     const mergedHunterData: HunterResult | null = hunterData ?? null;
 
-    if (allResults.length > 0 && aiProvider.extractContacts) {
-      extractedResult = await aiProvider.extractContacts(input, allResults, mergedHunterData);
+    if (aiResults.length > 0 && aiProvider.extractContacts) {
+      extractedResult = await aiProvider.extractContacts(input, aiResults, mergedHunterData);
     } else if (mergedHunterData && mergedHunterData.emails.length > 0 && aiProvider.extractContacts) {
       // No search results but we have email data — extract from that alone
       console.log("[Generation] No search results — extracting from email detective data only");
@@ -201,7 +216,7 @@ export async function runGeneration(
 
     rawResponse = JSON.stringify({
       queries: queriesUsed,
-      result_count: allResults.length,
+      result_count: aiResults.length,
       extracted: extractedResult,
     });
 
@@ -375,16 +390,26 @@ export async function runGeneration(
   }
 }
 
+// ─── Result signal scoring ─────────────────────────────────────────────────────
+
+/**
+ * Score a search result URL by how likely it is to contain a named recruiter.
+ * Higher score = sent to AI first when we cap the result list.
+ */
+function resultSignalScore(url: string): number {
+  if (url.includes("linkedin.com/in/")) return 4;           // direct profile page
+  if (url.includes("apollo.io") || url.includes("rocketreach.co")) return 3; // contact DB
+  if (url.includes("linkedin.com")) return 2;               // other LinkedIn pages
+  if (url.includes("github.com") || url.includes("twitter.com")) return 1;
+  return 0;
+}
+
 // ─── LinkedIn-specific recruiter query builder ────────────────────────────────
 
 /**
- * Hardcoded, proven search queries for finding the recruiter who posted a
- * LinkedIn job. These bypass AI generation for this specific case and are
- * prepended to the query list so they run first.
- *
- * Strategy: search LinkedIn profiles directly for company TA/recruiter staff.
- * Google indexes public LinkedIn profiles and their headlines, so these queries
- * reliably surface recruiter profiles at the target company.
+ * Two highly-targeted LinkedIn profile queries for jobs posted on LinkedIn.
+ * These replace the first two fallback queries and surface better results
+ * because they combine company + recruiter role + job title or location.
  */
 function buildLinkedInRecruiterQueries(input: RecruiterSearchInput): import("@/types/ai").SearchQueriesResponse["queries"] {
   const { company_name, job_title, location } = input;
@@ -394,21 +419,15 @@ function buildLinkedInRecruiterQueries(input: RecruiterSearchInput): import("@/t
 
   return [
     {
-      // Most reliable: find TA/recruiter profiles at the company with the job title
+      // Best: recruiter at company who matches this role's function
       query: `site:linkedin.com/in "${company_name}" "talent acquisition" OR "technical recruiter" OR "recruiter" "${job_title}"`,
       purpose: "LinkedIn recruiter profile matching job title",
       platform: "linkedin" as const,
     },
     {
-      // Location-anchored: find TA staff in the job's city
+      // Second best: TA staff in the job's city
       query: `site:linkedin.com/in "${company_name}" "talent acquisition" OR "recruiter" "${primaryLocation}"`,
       purpose: "LinkedIn TA profiles in job location",
-      platform: "linkedin" as const,
-    },
-    {
-      // Broader: any recruiter/HR at this company (no location filter)
-      query: `site:linkedin.com/in "${company_name}" "recruiter" OR "talent acquisition" OR "hiring" -jobs -job-posting`,
-      purpose: "All LinkedIn recruiter profiles at company",
       platform: "linkedin" as const,
     },
   ];
@@ -418,6 +437,13 @@ function buildLinkedInRecruiterQueries(input: RecruiterSearchInput): import("@/t
 
 import type { SearchQueriesResponse as SQR } from "@/types/ai";
 
+/**
+ * Four focused queries — two LinkedIn profile searches + two email/contact lookups.
+ * Dropped the two weakest queries from the old set of six:
+ *  - "all LinkedIn recruiter profiles" (overlapped with q1+q2)
+ *  - "TA team contact info" (generic, low signal)
+ * This saves 2 Serper credits per run with no quality loss.
+ */
 function buildFallbackQueries(input: RecruiterSearchInput): SQR {
   const { company_name, job_title, location } = input;
   const slug = company_name.toLowerCase().replace(/\s+/g, "");
@@ -427,33 +453,27 @@ function buildFallbackQueries(input: RecruiterSearchInput): SQR {
   return {
     queries: [
       {
+        // Location-anchored LinkedIn profile search (most targeted)
         query: `site:linkedin.com/in "${company_name}" "recruiter" OR "talent acquisition" "${primaryLocation}"`,
         purpose: "LinkedIn TA profiles in job location",
         platform: "linkedin" as const,
       },
       {
+        // Role-anchored LinkedIn profile search
         query: `site:linkedin.com/in "${company_name}" "talent acquisition" OR "technical recruiter" "${job_title}"`,
         purpose: "LinkedIn recruiter profiles matching role",
         platform: "linkedin" as const,
       },
       {
-        query: `site:linkedin.com/in "${company_name}" "recruiter" OR "talent acquisition" OR "hiring"`,
-        purpose: "All LinkedIn recruiter profiles at company",
-        platform: "linkedin" as const,
-      },
-      {
+        // Contact database — often surfaces emails directly
         query: `"${company_name}" recruiter email site:apollo.io OR site:rocketreach.co`,
         purpose: "Contact database lookup",
         platform: "google" as const,
       },
       {
+        // Email pattern discovery from real indexed emails
         query: `"${company_name}" "@${slug}.com" recruiter OR "talent acquisition"`,
         purpose: "Email pattern + recruiter discovery",
-        platform: "google" as const,
-      },
-      {
-        query: `"${company_name}" "talent acquisition" OR "recruiting" "${primaryLocation}" email contact`,
-        purpose: "Company TA team contact info",
         platform: "google" as const,
       },
     ],
