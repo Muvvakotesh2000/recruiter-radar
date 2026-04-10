@@ -262,6 +262,17 @@ export async function runGeneration(
       }
     }
 
+    // Fix recruiter titles — if the AI accidentally set the recruiter's title
+    // to the advertised job title, reset it to a generic recruiter label
+    extractedResult.recruiters = extractedResult.recruiters.map((r: any) => {
+      const titleLower = (r.job_title ?? "").toLowerCase().trim();
+      const jobTitleLower = input.job_title.toLowerCase().trim();
+      if (titleLower === jobTitleLower || titleLower.length === 0) {
+        return { ...r, job_title: "Recruiter / Talent Acquisition" };
+      }
+      return r;
+    });
+
     extractedResult.recruiters = extractedResult.recruiters.map((r: any) => {
       if (r.email && r.email_type === "verified") return r; // keep verified emails
 

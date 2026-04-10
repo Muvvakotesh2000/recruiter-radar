@@ -11,7 +11,7 @@ import type { HunterResult, HunterEmail } from "@/lib/services/hunter";
 export function buildQueryGenerationPrompt(
   input: RecruiterSearchInput
 ): string {
-  const { company_name, job_title, location } = input;
+  const { company_name, job_title, location, job_url } = input;
 
   // Parse multiple locations (split by / , ; or "and")
   const locations = location
@@ -23,6 +23,17 @@ export function buildQueryGenerationPrompt(
   const hasMultipleLocations = locations.length > 1;
   const locationList = locations.map((l) => `"${l}"`).join(" OR ");
   const companySlug = company_name.toLowerCase().replace(/\s+/g, "");
+  const isLinkedIn = job_url.includes("linkedin.com/jobs");
+
+  // Extract LinkedIn job ID if present (e.g. linkedin.com/jobs/view/1234567890)
+  const liJobIdMatch = job_url.match(/linkedin\.com\/jobs\/view\/(\d+)/);
+  const liJobId = liJobIdMatch?.[1] ?? null;
+
+  // For LinkedIn postings, add a query targeting the hiring team for this specific job
+  const linkedInJobQuery = isLinkedIn && liJobId
+    ? `\n7. LinkedIn hiring team for this specific job: "${liJobId}" site:linkedin.com "hiring" OR "recruiter" OR "talent acquisition" — find the person who posted this job`
+    : "";
+  const queryCount = isLinkedIn && liJobId ? "7" : "6";
 
   return `You are a recruiting research expert. Generate targeted Google search queries to find REAL recruiter contacts currently working at "${company_name}".
 
@@ -30,6 +41,7 @@ INPUT:
 - Company: ${company_name}
 - Role: ${job_title}
 - Location(s): ${location}${hasMultipleLocations ? ` (multiple locations: ${locations.join(", ")})` : ""}
+- Job URL: ${job_url}
 
 QUERY RULES:
 - Every query MUST contain "${company_name}" as a quoted phrase — never omit it
@@ -37,13 +49,13 @@ QUERY RULES:
 - Do NOT write generic queries that return recruiters across all of USA without location anchoring
 - Mix LinkedIn profile searches with email/contact database searches
 
-QUERY TYPES TO INCLUDE (write exactly 6):
+QUERY TYPES TO INCLUDE (write exactly ${queryCount}):
 1. Location-anchored LinkedIn: site:linkedin.com/in "${company_name}" "recruiter" OR "talent acquisition" ${primaryLocation}
 2. ${hasMultipleLocations ? `Multi-location LinkedIn: site:linkedin.com/in "${company_name}" recruiter (${locationList})` : `Role-specific LinkedIn: site:linkedin.com/in "${company_name}" "${job_title}" recruiter`}
 3. Email pattern discovery: "@${companySlug}.com" recruiter OR "talent acquisition" — finds pages exposing real email addresses
 4. Apollo/RocketReach contact: site:apollo.io OR site:rocketreach.co "${company_name}" recruiter email
 5. Company domain email evidence: "${company_name}" recruiter "email" "@${companySlug}.com" site:linkedin.com OR site:github.com
-6. Company careers/TA team: "${company_name}" "talent acquisition" OR "recruiting team" ${primaryLocation} email contact
+6. Company careers/TA team: "${company_name}" "talent acquisition" OR "recruiting team" ${primaryLocation} email contact${linkedInJobQuery}
 
 IMPORTANT: Queries 3, 4, and 5 are specifically designed to uncover real email addresses or confirm the company email pattern. Include all of them.
 
@@ -122,6 +134,17 @@ Snippet: ${r.snippet}${r.content ? `\nContent: ${r.content.slice(0, 600)}` : ""}
     hunterBlock = "\n\n" + lines.join("\n");
   }
 
+  // LinkedIn-specific instruction
+  const isLinkedIn = job_url.includes("linkedin.com/jobs");
+  const linkedInHint = isLinkedIn
+    ? `\n\nLINKEDIN JOB POSTING NOTE:
+This is a LinkedIn job posting (${job_url}). LinkedIn job pages have a "Meet the Hiring Team" section that shows the recruiter or hiring manager who posted the role. Look in the search results for:
+- A LinkedIn profile result where someone is described as having "posted this job" or appears under "Meet the Hiring Team"
+- The job posting's LinkedIn page may appear in results — look for a person's name and profile URL associated with it
+- Search result snippets from linkedin.com/jobs/ or linkedin.com/in/ pages that mention this specific job
+If found, that person is the HIGHEST PRIORITY contact — treat them as High confidence.`
+    : "";
+
   // Job page direct content block (highest priority source)
   let jobPageBlock = "";
   if (jobPageContent && jobPageContent.trim().length > 50) {
@@ -139,7 +162,7 @@ JOB CONTEXT:
 - Role: ${job_title}
 - Location(s): ${locationDisplay}
 - Job URL: ${job_url}
-${hunterBlock}${jobPageBlock}
+${hunterBlock}${linkedInHint}${jobPageBlock}
 
 SEARCH RESULTS (real web data):
 ${formattedResults}
@@ -207,7 +230,7 @@ Return ONLY valid JSON, no markdown or explanation:
   "recruiters": [
     {
       "full_name": "string",
-      "job_title": "string",
+      "job_title": "THE RECRUITER'S OWN ROLE at the company (e.g. 'Senior Technical Recruiter', 'Talent Acquisition Partner', 'Recruiting Manager') — NEVER the job being advertised ('${job_title}'). If their exact title is unknown, use a generic like 'Recruiter' or 'Talent Acquisition'.",
       "location": "city, state or country if visible in results, else null",
       "linkedin_url": "string or null",
       "email": "string or null",
