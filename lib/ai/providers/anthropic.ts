@@ -71,11 +71,13 @@ export class AnthropicProvider implements AIProvider {
 
   async extractContacts(
     input: RecruiterSearchInput,
-    searchResults: SearchResult[]
+    searchResults: SearchResult[],
+    hunterData?: import("@/lib/services/hunter").HunterResult | null,
+    jobPageContent?: string | null
   ): Promise<RecruiterLeadResponse> {
     const raw = await this.call(
       buildExtractionSystemPrompt(),
-      buildExtractionPrompt(input, searchResults)
+      buildExtractionPrompt(input, searchResults, hunterData, jobPageContent)
     );
     return RecruiterLeadResponseSchema.parse(JSON.parse(extractJsonFromText(raw)));
   }

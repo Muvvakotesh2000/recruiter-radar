@@ -79,10 +79,12 @@ export class XAIProvider implements AIProvider {
   /** Phase 2: extract contacts from real search results */
   async extractContacts(
     input: RecruiterSearchInput,
-    searchResults: SearchResult[]
+    searchResults: SearchResult[],
+    hunterData?: import("@/lib/services/hunter").HunterResult | null,
+    jobPageContent?: string | null
   ): Promise<RecruiterLeadResponse> {
     const system = buildExtractionSystemPrompt();
-    const user = buildExtractionPrompt(input, searchResults);
+    const user = buildExtractionPrompt(input, searchResults, hunterData, jobPageContent);
     const raw = await this.call(system, user);
     const json = extractJsonFromText(raw);
     return RecruiterLeadResponseSchema.parse(JSON.parse(json));

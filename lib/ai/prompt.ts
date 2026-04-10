@@ -68,7 +68,8 @@ Return ONLY valid JSON, no markdown:
 export function buildExtractionPrompt(
   input: RecruiterSearchInput,
   searchResults: SearchResult[],
-  hunterData?: HunterResult | null
+  hunterData?: HunterResult | null,
+  jobPageContent?: string | null
 ): string {
   const { company_name, job_title, location, job_url } = input;
 
@@ -121,6 +122,16 @@ Snippet: ${r.snippet}${r.content ? `\nContent: ${r.content.slice(0, 600)}` : ""}
     hunterBlock = "\n\n" + lines.join("\n");
   }
 
+  // Job page direct content block (highest priority source)
+  let jobPageBlock = "";
+  if (jobPageContent && jobPageContent.trim().length > 50) {
+    jobPageBlock = `\n\nDIRECT JOB PAGE CONTENT (HIGHEST PRIORITY — extracted from ${job_url}):
+This content came directly from the job posting. Any recruiter, hiring manager, or "Meet the Hiring Team" person mentioned here is a confirmed contact for this role. Treat names found here as High confidence.
+---
+${jobPageContent.slice(0, 5000)}
+---`;
+  }
+
   return `You are a strict data extraction expert. Your job is to find REAL recruiter contacts for "${company_name}" from search results.
 
 JOB CONTEXT:
@@ -128,7 +139,7 @@ JOB CONTEXT:
 - Role: ${job_title}
 - Location(s): ${locationDisplay}
 - Job URL: ${job_url}
-${hunterBlock}
+${hunterBlock}${jobPageBlock}
 
 SEARCH RESULTS (real web data):
 ${formattedResults}
