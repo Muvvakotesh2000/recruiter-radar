@@ -192,23 +192,43 @@ export async function runGeneration(
     );
 
     // ── Phase 3.5: AI fallback ────────────────────────────────────────────────────
+    //
+    // "Uncertain cases" = results we know are real people but couldn't fully parse:
+    //   - LinkedIn profiles (linkedin.com/in/) with non-standard title formats
+    //   - Apollo/RocketReach pages that failed contact extraction
+    //
+    // Never send generic web pages, job boards, or company pages to AI.
+    // Skip AI entirely only when non-AI found enough leads AND no uncertain cases exist.
     let aiLeads: ParsedLead[] = [];
     let emailPatternFromAI: string | null = null;
     let hiringTeamNotes: string | null = null;
 
+    // Collect high-value unparseable results — we know these are real people
+    const uncertainCases = unparsedResults.filter(
+      (r) =>
+        r.url.includes("linkedin.com/in/") ||
+        r.url.includes("apollo.io") ||
+        r.url.includes("rocketreach.co")
+    );
+
+    // Trigger AI when:
+    //   1. We have uncertain cases (LinkedIn profiles we couldn't parse), OR
+    //   2. We don't have enough high-confidence leads from non-AI parsing
     const shouldUseAI =
-      highConfidenceParsed.length < MIN_LEADS_WITHOUT_AI && !!aiProvider.extractContacts;
+      !!aiProvider.extractContacts &&
+      (uncertainCases.length > 0 || highConfidenceParsed.length < MIN_LEADS_WITHOUT_AI);
 
     if (shouldUseAI) {
-      console.log(
-        `[Generation] Phase 3.5 — AI fallback (only ${highConfidenceParsed.length} high-confidence leads so far)`
-      );
-
-      // Send unparsed results first; if too few, include filtered results
+      // Send uncertain cases first; if < 3, supplement with other filtered results
       const aiInput =
-        unparsedResults.length >= 5
-          ? unparsedResults.slice(0, MAX_AI_RESULTS)
+        uncertainCases.length >= 3
+          ? uncertainCases.slice(0, MAX_AI_RESULTS)
           : filteredResults.slice(0, MAX_AI_RESULTS);
+
+      console.log(
+        `[Generation] Phase 3.5 — AI on ${aiInput.length} uncertain results ` +
+        `(${uncertainCases.length} unparseable profiles, ${highConfidenceParsed.length} High from non-AI)`
+      );
 
       try {
         const aiResult = await aiProvider.extractContacts!(
@@ -220,7 +240,6 @@ export async function runGeneration(
         emailPatternFromAI = aiResult.email_pattern ?? null;
         hiringTeamNotes = aiResult.hiring_team_notes ?? null;
 
-        // Convert AI leads to ParsedLead format
         aiLeads = (aiResult.recruiters ?? []).map((r) => {
           const lead: ParsedLead = {
             full_name: r.full_name,
@@ -239,12 +258,12 @@ export async function runGeneration(
           return lead;
         });
 
-        console.log(`[Generation] AI fallback extracted ${aiLeads.length} additional leads`);
+        console.log(`[Generation] AI extracted ${aiLeads.length} additional leads`);
       } catch (err) {
         console.warn("[Generation] AI fallback failed:", err);
       }
     } else {
-      console.log("[Generation] Skipping AI — sufficient leads from non-AI extraction");
+      console.log("[Generation] Skipping AI — non-AI parsing sufficient, no uncertain cases");
     }
 
     // ── Phase 4: Merge, deduplicate, rank ────────────────────────────────────────
@@ -430,40 +449,38 @@ function buildDynamicQueries(input: RecruiterSearchInput): SearchQuery[] {
 
   const queries: SearchQuery[] = [];
 
-  // Q1: Exact city + "recruiter" — simple, no parentheses (Google handles these better)
+  // Q1: City + "recruiter" — catches Recruiter, Senior Recruiter, Lead Recruiter, etc.
   queries.push({
     query: `site:linkedin.com/in "${company_name}" "recruiter" "${locationStr}"`,
     purpose: `LinkedIn recruiters in ${locationStr}`,
     platform: "linkedin",
   });
 
-  // Q2: Exact city + "talent acquisition" — separate query covers different title phrasing
+  // Q2: City + "talent acquisition" — catches TA Partner, TA Manager, TA Lead, etc.
   queries.push({
     query: `site:linkedin.com/in "${company_name}" "talent acquisition" "${locationStr}"`,
     purpose: `LinkedIn talent acquisition in ${locationStr}`,
     platform: "linkedin",
   });
 
-  // Q3: State/region fallback OR function-specific — catches broader location or role match
+  // Q3: State-level fallback — catches profiles listed as "Texas" instead of "Austin"
+  // If no state, search for "sourcer" OR "technical recruiter" in the city instead
   const regionStr = state ?? locationStr;
-  if (regionStr.toLowerCase() !== locationStr.toLowerCase()) {
-    // Have a state — search at state level to catch "Texas" instead of "Austin"
+  if (state && state.toLowerCase() !== locationStr.toLowerCase()) {
     queries.push({
-      query: `site:linkedin.com/in "${company_name}" "recruiter" OR "talent acquisition" "${regionStr}"`,
-      purpose: `LinkedIn TA profiles in ${regionStr} (state fallback)`,
+      query: `site:linkedin.com/in "${company_name}" "recruiter" OR "talent acquisition" "${state}"`,
+      purpose: `LinkedIn TA profiles in ${state} (state fallback)`,
       platform: "linkedin",
     });
   } else {
-    // No state — use function-specific query
-    const funcTitle = jobFunction ? `"${jobFunction} recruiter"` : `"technical recruiter"`;
     queries.push({
-      query: `site:linkedin.com/in "${company_name}" ${funcTitle} OR "talent acquisition"`,
-      purpose: `LinkedIn ${jobFunction ?? "technical"} recruiter profiles`,
+      query: `site:linkedin.com/in "${company_name}" "technical recruiter" OR "sourcer" "${locationStr}"`,
+      purpose: `LinkedIn technical recruiters and sourcers in ${locationStr}`,
       platform: "linkedin",
     });
   }
 
-  // Q4: Contact database — Apollo/RocketReach with location, often surfaces emails
+  // Q4: Contact database — Apollo/RocketReach, often has emails directly in snippets
   queries.push({
     query: `"${company_name}" recruiter "${locationStr}" site:apollo.io OR site:rocketreach.co`,
     purpose: `Contact DB: recruiters in ${locationStr}`,
