@@ -34,16 +34,14 @@ export async function detectEmailPattern(
   domain: string,
   searchProvider: SearchProvider
 ): Promise<EmailPatternResult> {
+  // Single query combining both signals — saves one Serper credit per run
   const queries = [
-    // Query 1: Find pages that openly show @domain emails (exclude generic)
-    `"@${domain}" -noreply -support -info -contact -careers`,
-    // Query 2: Hunter.io + Apollo public pages often show email format
-    `"${domain}" email format site:hunter.io OR site:apollo.io OR "email pattern"`,
+    `"@${domain}" -noreply -support -info -contact -careers OR "${domain}" email format site:hunter.io OR site:apollo.io`,
   ];
 
   const results = await Promise.all(
     queries.map((q) =>
-      searchProvider.search(q, 10).catch(() => null)
+      searchProvider.search(q, 5).catch(() => null)
     )
   );
 

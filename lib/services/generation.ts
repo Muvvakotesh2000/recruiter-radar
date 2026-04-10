@@ -33,8 +33,8 @@ interface GenerationResult {
 /** Max queries to execute in parallel. Keeps latency under control. */
 const MAX_QUERIES = 6;
 
-/** Max results per query */
-const RESULTS_PER_QUERY = 10;
+/** Max results per query — 5 is enough; top results are most relevant */
+const RESULTS_PER_QUERY = 5;
 
 export async function runGeneration(
   options: GenerationOptions
@@ -84,14 +84,9 @@ export async function runGeneration(
       `[Generation] Phase 1 — generating queries via ${aiProvider.providerName}`
     );
 
-    let queryResponse: SearchQueriesResponse;
-
-    if (aiProvider.generateQueries) {
-      queryResponse = await aiProvider.generateQueries(input);
-    } else {
-      // Fallback: build sensible default queries without AI
-      queryResponse = buildFallbackQueries(input);
-    }
+    // Skip Phase 1 AI query generation — hardcoded queries are equivalent
+    // and save one full AI API call per run
+    const queryResponse: SearchQueriesResponse = buildFallbackQueries(input);
 
     // If user provided a recruiter name hint, inject a direct profile search
     // as the very first query — this is the most targeted possible search
@@ -454,17 +449,24 @@ import type { SearchQueriesResponse as SQR } from "@/types/ai";
 function buildFallbackQueries(input: RecruiterSearchInput): SQR {
   const { company_name, job_title, location } = input;
   const slug = company_name.toLowerCase().replace(/\s+/g, "");
+  const locations = location.split(/[\/,;]|\band\b/i).map((l) => l.trim()).filter(Boolean);
+  const primaryLocation = locations[0];
 
   return {
     queries: [
       {
-        query: `site:linkedin.com/in "${company_name}" recruiter "${job_title}"`,
-        purpose: "LinkedIn recruiter profiles",
+        query: `site:linkedin.com/in "${company_name}" "recruiter" OR "talent acquisition" "${primaryLocation}"`,
+        purpose: "LinkedIn TA profiles in job location",
         platform: "linkedin" as const,
       },
       {
-        query: `site:linkedin.com/in "${company_name}" "talent acquisition" "${location}"`,
-        purpose: "LinkedIn TA profiles by location",
+        query: `site:linkedin.com/in "${company_name}" "talent acquisition" OR "technical recruiter" "${job_title}"`,
+        purpose: "LinkedIn recruiter profiles matching role",
+        platform: "linkedin" as const,
+      },
+      {
+        query: `site:linkedin.com/in "${company_name}" "recruiter" OR "talent acquisition" OR "hiring"`,
+        purpose: "All LinkedIn recruiter profiles at company",
         platform: "linkedin" as const,
       },
       {
@@ -473,13 +475,13 @@ function buildFallbackQueries(input: RecruiterSearchInput): SQR {
         platform: "google" as const,
       },
       {
-        query: `"${company_name}" email format "@${slug}.com" recruiter`,
-        purpose: "Email pattern discovery",
+        query: `"${company_name}" "@${slug}.com" recruiter OR "talent acquisition"`,
+        purpose: "Email pattern + recruiter discovery",
         platform: "google" as const,
       },
       {
-        query: `"${company_name}" "talent acquisition" hiring "${job_title}" site:linkedin.com`,
-        purpose: "Role-specific TA search",
+        query: `"${company_name}" "talent acquisition" OR "recruiting" "${primaryLocation}" email contact`,
+        purpose: "Company TA team contact info",
         platform: "google" as const,
       },
     ],

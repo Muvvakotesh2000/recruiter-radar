@@ -87,7 +87,7 @@ export function buildExtractionPrompt(
       `[Result ${i + 1}]
 Title: ${r.title}
 URL: ${r.url}
-Snippet: ${r.snippet}${r.content ? `\nContent: ${r.content.slice(0, 600)}` : ""}`
+Snippet: ${r.snippet}`
     )
     .join("\n\n---\n\n");
 
