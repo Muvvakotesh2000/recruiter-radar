@@ -182,20 +182,18 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
     return { tier0, tier1, tier2 };
   }
 
-  function locationMatchScore(leadLocation: string | null): number {
-    if (!leadLocation) return 4;
+  function isExactCityMatch(leadLocation: string | null): boolean {
+    if (!leadLocation) return false;
     const ll = leadLocation.toLowerCase();
     const llCity = ll.split(",")[0].trim();
     const tiers = buildUILocationTiers(job.location ?? "");
-    if (tiers.tier0.some(t => ll.includes(t) || t.includes(llCity))) return 0;
-    if (tiers.tier1.some(t => ll.includes(t) || t.includes(llCity))) return 1;
-    if (tiers.tier2.some(t => ll.includes(t))) return 2;
-    return 3;
+    return tiers.tier0.some(t => ll.includes(t) || t.includes(llCity));
   }
 
   const leads = (job.recruiter_leads ?? []).slice().sort((a, b) => {
-    const locDiff = locationMatchScore(a.location) - locationMatchScore(b.location);
-    if (locDiff !== 0) return locDiff;
+    const aExact = isExactCityMatch(a.location) ? 0 : 1;
+    const bExact = isExactCityMatch(b.location) ? 0 : 1;
+    if (aExact !== bExact) return aExact - bExact;
     return (CONFIDENCE_ORDER[a.confidence_level] ?? 3) - (CONFIDENCE_ORDER[b.confidence_level] ?? 3);
   });
   const emailLeads = leads.filter((l) => l.email);
