@@ -222,9 +222,6 @@ export async function runGeneration(
     if (hunterData?.pattern) {
       bestPattern = hunterData.pattern;
       patternSource = "hunter";
-    } else if (emailPatternResult?.pattern && emailPatternResult.confidence !== "none") {
-      bestPattern = emailPatternResult.pattern;
-      patternSource = `detective:${emailPatternResult.confidence}`;
     } else if (extractedResult.email_pattern) {
       // AI found something in the snippets — trust it only if it looks like a real pattern
       const aiPattern = extractedResult.email_pattern.replace(/@.*$/, "").trim();
