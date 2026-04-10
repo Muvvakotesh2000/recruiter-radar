@@ -75,12 +75,11 @@ export class OpenAIProvider implements AIProvider {
   async extractContacts(
     input: RecruiterSearchInput,
     searchResults: SearchResult[],
-    hunterData?: HunterResult | null,
-    jobPageContent?: string | null
+    hunterData?: HunterResult | null
   ): Promise<RecruiterLeadResponse> {
     const raw = await this.call(
       buildExtractionSystemPrompt(),
-      buildExtractionPrompt(input, searchResults, hunterData, jobPageContent)
+      buildExtractionPrompt(input, searchResults, hunterData)
     );
     return RecruiterLeadResponseSchema.parse(JSON.parse(extractJsonFromText(raw)));
   }

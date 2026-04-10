@@ -13,7 +13,6 @@ import { getSearchProvider } from "@/lib/search/factory";
 import { buildRecruiterPrompt, buildSystemPrompt } from "@/lib/ai/prompt";
 import { hunterDomainSearch, extractCompanyDomain } from "@/lib/services/hunter";
 import { detectEmailPattern } from "@/lib/services/email-detective";
-import { scrapeJobPage } from "@/lib/services/job-page-scraper";
 import { applyPattern, splitName } from "@/lib/utils/email-patterns";
 import type { RecruiterSearchInput, SearchQueriesResponse } from "@/types/ai";
 import type { SearchResult } from "@/lib/search/base";
@@ -108,7 +107,7 @@ export async function runGeneration(
 
     const companyDomain = extractCompanyDomain(input.job_url, input.company_name);
 
-    const [searchResponses, hunterData, emailPatternResult, jobPageResult] = await Promise.all([
+    const [searchResponses, hunterData, emailPatternResult] = await Promise.all([
       // Contact-finding searches
       Promise.all(
         topQueries.map((q) =>
@@ -126,15 +125,7 @@ export async function runGeneration(
       hunterDomainSearch(companyDomain).catch(() => null) as Promise<HunterResult | null>,
       // Email detective — 2 targeted searches to find the real email pattern
       detectEmailPattern(companyDomain, searchProvider).catch(() => null),
-      // Fetch the job page directly — may contain recruiter/hiring-team info
-      scrapeJobPage(input.job_url).catch(() => null),
     ]);
-
-    if (jobPageResult?.success) {
-      console.log(`[Generation] Job page scraped — ${jobPageResult.content.length} chars of content`);
-    } else {
-      console.log(`[Generation] Job page not available (blocked/timeout/no content)`);
-    }
 
     if (hunterData?.pattern) {
       console.log(`[Generation] Hunter.io pattern="${hunterData.pattern}" for ${companyDomain}`);
@@ -188,14 +179,12 @@ export async function runGeneration(
         : null
     );
 
-    const jobPageContent = jobPageResult?.success ? jobPageResult.content : null;
-
     if (allResults.length > 0 && aiProvider.extractContacts) {
-      extractedResult = await aiProvider.extractContacts(input, allResults, mergedHunterData, jobPageContent);
+      extractedResult = await aiProvider.extractContacts(input, allResults, mergedHunterData);
     } else if (mergedHunterData && mergedHunterData.emails.length > 0 && aiProvider.extractContacts) {
       // No search results but we have email data — extract from that alone
       console.log("[Generation] No search results — extracting from email detective data only");
-      extractedResult = await aiProvider.extractContacts(input, [], mergedHunterData, jobPageContent);
+      extractedResult = await aiProvider.extractContacts(input, [], mergedHunterData);
     } else {
       // No search results — return empty rather than hallucinating contacts
       console.warn(

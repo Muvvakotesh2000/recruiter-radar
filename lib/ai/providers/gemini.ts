@@ -71,12 +71,11 @@ export class GeminiProvider implements AIProvider {
   async extractContacts(
     input: RecruiterSearchInput,
     searchResults: SearchResult[],
-    hunterData?: import("@/lib/services/hunter").HunterResult | null,
-    jobPageContent?: string | null
+    hunterData?: import("@/lib/services/hunter").HunterResult | null
   ): Promise<RecruiterLeadResponse> {
     const raw = await this.call(
       buildExtractionSystemPrompt(),
-      buildExtractionPrompt(input, searchResults, hunterData, jobPageContent)
+      buildExtractionPrompt(input, searchResults, hunterData)
     );
     return RecruiterLeadResponseSchema.parse(JSON.parse(extractJsonFromText(raw)));
   }

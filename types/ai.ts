@@ -47,12 +47,11 @@ export interface AIProvider {
   /** Phase 1: generate targeted search queries */
   generateQueries?(input: RecruiterSearchInput): Promise<SearchQueriesResponse>;
 
-  /** Phase 2: extract contacts from real search results + optional job page content */
+  /** Phase 2: extract contacts from real search results */
   extractContacts?(
     input: RecruiterSearchInput,
     searchResults: import("@/lib/search/base").SearchResult[],
-    hunterData?: import("@/lib/services/hunter").HunterResult | null,
-    jobPageContent?: string | null
+    hunterData?: import("@/lib/services/hunter").HunterResult | null
   ): Promise<RecruiterLeadResponse>;
 
   /** Legacy / fallback single-shot mode */
