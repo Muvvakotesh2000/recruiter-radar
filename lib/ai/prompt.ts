@@ -206,7 +206,7 @@ CRITICAL: Set email_pattern in your response if you detect ANY pattern — even 
 
 OUTPUT RULES:
 - Return 0 recruiters if no valid contacts found — an empty array is better than fabricated data
-- Maximum 5 contacts; prefer quality over quantity
+- Return up to 10 contacts; include all valid leads found regardless of confidence level
 
 Return ONLY valid JSON, no markdown or explanation:
 {

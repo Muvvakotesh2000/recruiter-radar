@@ -320,10 +320,9 @@ export async function runGeneration(
     // Delete any existing leads for this job (supports regeneration)
     await db.from("recruiter_leads").delete().eq("job_id", jobId);
 
-    // Only save High and Medium confidence leads — Low confidence are unreliable
-    const reliableLeads = extractedResult.recruiters.filter(
-      (r: any) => r.confidence_level === "High" || r.confidence_level === "Medium"
-    );
+    // Save all extracted leads — confidence level is shown on the card so the
+    // user can judge themselves; filtering here was causing too few results
+    const reliableLeads = extractedResult.recruiters;
 
     if (reliableLeads.length > 0) {
       const leadsToInsert = reliableLeads.map((r: any) => ({
