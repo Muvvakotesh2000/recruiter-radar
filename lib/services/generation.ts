@@ -32,8 +32,8 @@ interface GenerationResult {
 /** Max queries to execute in parallel. Keeps latency under control. */
 const MAX_QUERIES = 6;
 
-/** Max results per query — 8 balances quality vs AI token cost */
-const RESULTS_PER_QUERY = 8;
+/** Max results per query */
+const RESULTS_PER_QUERY = 10;
 
 export async function runGeneration(
   options: GenerationOptions

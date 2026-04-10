@@ -84,12 +84,11 @@ export function buildExtractionPrompt(
 
   const formattedResults = searchResults
     .map((r, i) =>
-      `[Result ${i + 1}]
-Title: ${r.title}
-URL: ${r.url}
-Snippet: ${r.snippet}`
+      `[${i + 1}] ${r.title}
+${r.url}
+${r.snippet.slice(0, 150)}`
     )
-    .join("\n\n---\n\n");
+    .join("\n\n");
 
   // Parse multiple locations
   const locations = location
