@@ -33,8 +33,8 @@ interface GenerationResult {
 /** Max queries to execute in parallel. Keeps latency under control. */
 const MAX_QUERIES = 6;
 
-/** Max results per query — 5 is enough; top results are most relevant */
-const RESULTS_PER_QUERY = 5;
+/** Max results per query */
+const RESULTS_PER_QUERY = 10;
 
 export async function runGeneration(
   options: GenerationOptions

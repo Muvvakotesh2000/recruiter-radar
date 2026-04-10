@@ -41,7 +41,7 @@ export async function detectEmailPattern(
 
   const results = await Promise.all(
     queries.map((q) =>
-      searchProvider.search(q, 5).catch(() => null)
+      searchProvider.search(q, 10).catch(() => null)
     )
   );
 
