@@ -40,7 +40,7 @@ interface GenerationResult {
 }
 
 /** Max queries to execute in parallel. */
-const MAX_QUERIES = 5;
+const MAX_QUERIES = 4;
 
 /**
  * Results per query. Serper charges per API call, not per result,
