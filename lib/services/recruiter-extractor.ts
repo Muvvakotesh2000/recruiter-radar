@@ -107,24 +107,39 @@ export function fuzzyCompanyMatch(resultCompany: string, inputCompany: string): 
   return new RegExp(`(?:^| )${escaped}(?= |$)`).test(longer);
 }
 
+/** Words that indicate a non-employment relationship with the company */
+const CERT_WORDS = /\b(certified|certification|certificate|credential|badge|course|training|bootcamp|program|exam|assessment|licensed|accredited|issued by|awarded by|completion)\b/i;
+
 /**
- * Check if the company appears in an employment context in the snippet,
- * not just incidentally (e.g. "I interviewed at X" or "Previously at X").
+ * Check if the company appears in an employment context in the snippet.
+ * Returns false for certification/credential contexts even if the company
+ * name matches — e.g. "Google Certified" or "AWS Certificate" should NOT
+ * count as the person working at Google / AWS.
  */
 function companyInEmploymentContext(snippet: string, companyName: string): boolean {
   const s = snippet.toLowerCase();
   const cn = companyName.toLowerCase();
   const idx = s.indexOf(cn);
   if (idx === -1) return false;
+
+  // Check 40 chars around the match for certification language — reject immediately
+  const window = s.slice(Math.max(0, idx - 40), idx + cn.length + 40);
+  if (CERT_WORDS.test(window)) return false;
+
   // Within the first 80 chars → likely current employer in profile headline
   if (idx < 80) return true;
-  // Preceded by employment words: "at", "@", "with", "for", "·"
+  // Preceded by employment words: "at", "@", "·", "with", "for"
   const before = s.slice(Math.max(0, idx - 25), idx);
   if (/(\bat\b|@|·|with\b|for\b)\s*$/.test(before)) return true;
   // Followed immediately by recruiter-role words (e.g. "CompanyX Recruiter")
   const after = s.slice(idx + cn.length, idx + cn.length + 20);
   if (/^\s*(recruiter|talent|sourcer|hiring|hr |people )/.test(after)) return true;
   return false;
+}
+
+/** Returns true if the string looks like a certification title, not a company name */
+function looksLikeCertification(text: string): boolean {
+  return CERT_WORDS.test(text);
 }
 
 // ─── State + Metro maps ─────────────────────────────────────────────────────────
@@ -392,6 +407,11 @@ export function parseLinkedInResult(
   }
 
   if (!rawName) return null;
+
+  // Reject if the parsed company/title field looks like a certification
+  // e.g. "Name - Google Cloud Certified | LinkedIn" → rawCompany = "Google Cloud Certified"
+  if (rawCompany && looksLikeCertification(rawCompany)) return null;
+  if (rawTitle && looksLikeCertification(rawTitle)) return null;
 
   // Verify company match — require employment context, not just any mention
   const companyToCheck = rawCompany ?? "";
