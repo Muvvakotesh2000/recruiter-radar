@@ -132,7 +132,7 @@ export function DashboardContent({
                   onClick={() => setStatusFilter(status)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all capitalize ${
                     statusFilter === status
-                      ? "bg-violet-600 text-white"
+                      ? "bg-brand-600 text-white"
                       : "bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/80"
                   }`}
                 >
@@ -171,7 +171,7 @@ export function DashboardContent({
         {/* Quick add FAB on mobile */}
         <button
           onClick={() => setModalOpen(true)}
-          className="fixed bottom-6 right-6 sm:hidden w-14 h-14 rounded-full bg-gradient-to-br from-violet-600 to-blue-600 flex items-center justify-center shadow-glow-lg text-white z-30 hover:scale-110 active:scale-95 transition-transform"
+          className="fixed bottom-6 right-6 sm:hidden w-14 h-14 rounded-full bg-gradient-to-br from-brand-600 to-blue-600 flex items-center justify-center shadow-glow-lg text-white z-30 hover:scale-110 active:scale-95 transition-transform"
           aria-label="Find Recruiters"
         >
           <Plus className="w-6 h-6" />

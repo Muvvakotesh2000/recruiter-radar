@@ -11,7 +11,7 @@ export function CtaSection() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
         {/* Background glow */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="w-[600px] h-[300px] bg-violet-600/15 rounded-full blur-3xl" />
+          <div className="w-[600px] h-[300px] bg-brand-600/15 rounded-full blur-3xl" />
         </div>
 
         <motion.div
@@ -21,7 +21,7 @@ export function CtaSection() {
           transition={{ duration: 0.6 }}
           className="relative"
         >
-          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-violet-500/10 border border-violet-500/20 text-xs text-violet-400 font-medium mb-6">
+          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-500/10 border border-brand-500/20 text-xs text-brand-400 font-medium mb-6">
             <Sparkles className="w-3 h-3" />
             Start for free today
           </span>

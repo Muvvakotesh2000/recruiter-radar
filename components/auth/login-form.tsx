@@ -163,7 +163,7 @@ export function LoginForm() {
             <Label htmlFor="password">Password</Label>
             <button
               type="button"
-              className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+              className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
             >
               Forgot password?
             </button>

@@ -104,9 +104,9 @@ export function getEmailTypeColor(
       };
     case "estimated":
       return {
-        bg: "bg-violet-500/10",
-        text: "text-violet-400",
-        border: "border-violet-500/20",
+        bg: "bg-brand-500/10",
+        text: "text-brand-400",
+        border: "border-brand-500/20",
       };
     case "unknown":
       return {

@@ -75,10 +75,10 @@ export function DashboardMetrics({ metrics }: DashboardMetricsProps) {
     <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
       <StatCard
         index={0}
-        icon={<Briefcase className="w-5 h-5 text-violet-400" />}
+        icon={<Briefcase className="w-5 h-5 text-brand-400" />}
         label="Total Jobs"
         value={metrics.totalJobs}
-        iconBg="bg-violet-500/15"
+        iconBg="bg-brand-500/15"
       />
       <StatCard
         index={1}

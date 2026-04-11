@@ -10,7 +10,7 @@ const steps = [
     title: "Paste the job URL",
     description:
       "Copy the job listing URL from LinkedIn, Greenhouse, Lever, or any job board. Add the company, role, and location.",
-    color: "from-violet-600 to-purple-600",
+    color: "from-brand-600 to-brand-600",
   },
   {
     number: "02",
@@ -34,7 +34,7 @@ const steps = [
     title: "Send your outreach",
     description:
       "Each lead comes with a personalized message ready to send. Copy it directly and reach out to the decision-maker.",
-    color: "from-emerald-600 to-violet-600",
+    color: "from-emerald-600 to-brand-600",
   },
 ];
 
@@ -65,7 +65,7 @@ export function HowItWorksSection() {
         {/* Steps */}
         <div className="relative">
           {/* Connecting line */}
-          <div className="absolute left-[27px] top-10 bottom-10 w-px bg-gradient-to-b from-violet-600/40 via-blue-600/40 to-emerald-600/40 hidden sm:block" />
+          <div className="absolute left-[27px] top-10 bottom-10 w-px bg-gradient-to-b from-brand-600/40 via-blue-600/40 to-emerald-600/40 hidden sm:block" />
 
           <div className="space-y-10">
             {steps.map((step, i) => {

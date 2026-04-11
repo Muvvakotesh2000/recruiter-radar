@@ -18,9 +18,9 @@ export function EmptyState({ onAddJob }: EmptyStateProps) {
     >
       {/* Animated icon */}
       <div className="relative mb-8">
-        <div className="absolute inset-0 rounded-full bg-violet-500/10 animate-ping" style={{ animationDuration: '3s' }} />
-        <div className="relative w-24 h-24 rounded-full bg-gradient-to-br from-violet-600/20 to-blue-600/20 border border-violet-500/20 flex items-center justify-center">
-          <Radar className="w-10 h-10 text-violet-400" />
+        <div className="absolute inset-0 rounded-full bg-brand-500/10 animate-ping" style={{ animationDuration: '3s' }} />
+        <div className="relative w-24 h-24 rounded-full bg-gradient-to-br from-brand-600/20 to-blue-600/20 border border-brand-500/20 flex items-center justify-center">
+          <Radar className="w-10 h-10 text-brand-400" />
         </div>
       </div>
 

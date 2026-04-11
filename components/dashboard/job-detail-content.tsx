@@ -274,8 +274,8 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
         >
           <div className="flex flex-col sm:flex-row sm:items-start gap-4">
             {/* Company icon */}
-            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-violet-500/20 to-blue-500/20 border border-violet-500/20 flex items-center justify-center flex-shrink-0">
-              <Building2 className="w-7 h-7 text-violet-400" />
+            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-500/20 to-blue-500/20 border border-brand-500/20 flex items-center justify-center flex-shrink-0">
+              <Building2 className="w-7 h-7 text-brand-400" />
             </div>
 
             <div className="flex-1 min-w-0">
@@ -318,9 +318,9 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
                 <div className="mt-4 space-y-2">
                   {job.email_pattern && (
                     <div className="flex items-center gap-2 text-sm">
-                      <Mail className="w-4 h-4 text-violet-400 flex-shrink-0" />
+                      <Mail className="w-4 h-4 text-brand-400 flex-shrink-0" />
                       <span className="text-muted-foreground">Email pattern:</span>
-                      <code className="text-violet-300 font-mono text-xs bg-violet-500/10 px-2 py-0.5 rounded">
+                      <code className="text-brand-300 font-mono text-xs bg-brand-500/10 px-2 py-0.5 rounded">
                         {job.email_pattern}
                       </code>
                     </div>
@@ -385,11 +385,11 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
               className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-secondary/20 transition-colors"
             >
               <div className="flex items-center gap-2.5 text-sm font-medium text-muted-foreground">
-                <Search className="w-4 h-4 text-violet-400" />
+                <Search className="w-4 h-4 text-brand-400" />
                 <span>
                   Search queries executed
                 </span>
-                <span className="px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-400 text-xs border border-violet-500/20">
+                <span className="px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-400 text-xs border border-brand-500/20">
                   {lastRun.search_queries_used.length} queries
                   {lastRun.search_provider && ` · ${lastRun.search_provider}`}
                 </span>
@@ -416,7 +416,7 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
                     <span className="text-xs font-mono text-muted-foreground/50 mt-0.5 flex-shrink-0 w-5">
                       {i + 1}.
                     </span>
-                    <code className="text-xs text-violet-300 bg-violet-500/8 border border-violet-500/15 rounded-md px-2.5 py-1.5 font-mono break-all">
+                    <code className="text-xs text-brand-300 bg-brand-500/8 border border-brand-500/15 rounded-md px-2.5 py-1.5 font-mono break-all">
                       {q}
                     </code>
                   </div>
@@ -434,7 +434,7 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
                 Recruiter Leads
               </h2>
               {(job.status === "pending" || job.status === "processing") ? (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-violet-500/10 text-violet-400 border border-violet-500/20">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-brand-500/10 text-brand-400 border border-brand-500/20">
                   <Loader2 className="w-3 h-3 animate-spin" />
                   Searching...
                 </span>
@@ -531,10 +531,10 @@ function GeneratingLeadsState() {
   return (
     <div className="space-y-4">
       {/* Progress card */}
-      <div className="glass rounded-xl border border-violet-500/20 p-6">
+      <div className="glass rounded-xl border border-brand-500/20 p-6">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-9 h-9 rounded-lg bg-violet-500/10 flex items-center justify-center flex-shrink-0">
-            <Loader2 className="w-5 h-5 text-violet-400 animate-spin" />
+          <div className="w-9 h-9 rounded-lg bg-brand-500/10 flex items-center justify-center flex-shrink-0">
+            <Loader2 className="w-5 h-5 text-brand-400 animate-spin" />
           </div>
           <div>
             <p className="text-sm font-medium text-foreground">Finding recruiter leads...</p>
@@ -545,7 +545,7 @@ function GeneratingLeadsState() {
         {/* Progress bar */}
         <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden mb-3">
           <motion.div
-            className="h-full bg-gradient-to-r from-violet-600 to-blue-500 rounded-full"
+            className="h-full bg-gradient-to-r from-brand-600 to-blue-500 rounded-full"
             animate={{ width: `${progress}%` }}
             transition={{ duration: 1, ease: "easeOut" }}
           />

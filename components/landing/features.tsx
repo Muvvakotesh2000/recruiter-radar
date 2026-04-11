@@ -18,9 +18,9 @@ const features = [
     title: "Multi-source search",
     description:
       "Searches LinkedIn, company pages, Apollo, RocketReach, and Hunter patterns to find the most relevant contacts.",
-    color: "text-violet-400",
-    bg: "bg-violet-500/10",
-    border: "border-violet-500/20",
+    color: "text-brand-400",
+    bg: "bg-brand-500/10",
+    border: "border-brand-500/20",
   },
   {
     icon: Mail,
@@ -72,9 +72,9 @@ const features = [
     title: "One-click copy",
     description:
       "Copy email, LinkedIn URL, or outreach message instantly. Or copy all emails at once.",
-    color: "text-indigo-400",
-    bg: "bg-indigo-500/10",
-    border: "border-indigo-500/20",
+    color: "text-brand-400",
+    bg: "bg-brand-500/10",
+    border: "border-brand-500/20",
   },
   {
     icon: RefreshCw,
@@ -100,7 +100,7 @@ const cardVariants = {
 export function FeaturesSection() {
   return (
     <section id="features" className="py-28 relative overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-violet-950/5 to-transparent pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-brand-900/5 to-transparent pointer-events-none" />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
@@ -111,7 +111,7 @@ export function FeaturesSection() {
           transition={{ duration: 0.6 }}
           className="text-center mb-16"
         >
-          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-violet-500/10 border border-violet-500/20 text-xs text-violet-400 font-medium mb-4">
+          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-500/10 border border-brand-500/20 text-xs text-brand-400 font-medium mb-4">
             Everything you need
           </span>
           <h2 className="font-display text-4xl sm:text-5xl font-bold text-white mb-4">

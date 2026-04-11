@@ -29,7 +29,7 @@ export function LandingNavbar() {
       <div className="h-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2.5 group">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-blue-600 flex items-center justify-center shadow-md group-hover:shadow-violet-500/30 transition-shadow">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-blue-600 flex items-center justify-center shadow-md group-hover:shadow-brand-500/30 transition-shadow">
             <Radar className="w-4 h-4 text-white" />
           </div>
           <span className="font-display text-lg font-bold text-white">

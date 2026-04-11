@@ -26,7 +26,7 @@ export function HeroSection() {
         <motion.div
           animate={{ scale: [1, 1.1, 1], opacity: [0.15, 0.25, 0.15] }}
           transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute top-1/4 -left-1/4 w-[600px] h-[600px] bg-violet-600 rounded-full blur-[120px]"
+          className="absolute top-1/4 -left-1/4 w-[600px] h-[600px] bg-brand-600 rounded-full blur-[120px]"
         />
         <motion.div
           animate={{ scale: [1, 1.15, 1], opacity: [0.1, 0.2, 0.1] }}
@@ -59,11 +59,11 @@ export function HeroSection() {
         >
           {/* Pill badge */}
           <motion.div variants={itemVariants} className="flex justify-center">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass border border-violet-500/30 text-sm text-violet-300">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass border border-brand-500/30 text-sm text-brand-300">
               <Sparkles className="w-3.5 h-3.5" />
               <span>AI-Powered Recruiter Discovery</span>
-              <span className="w-px h-3.5 bg-violet-500/40" />
-              <span className="text-violet-400 font-medium">Free to start</span>
+              <span className="w-px h-3.5 bg-brand-500/40" />
+              <span className="text-brand-400 font-medium">Free to start</span>
             </div>
           </motion.div>
 
@@ -76,7 +76,7 @@ export function HeroSection() {
             <span className="relative">
               <span className="gradient-text">recruiter</span>
               <motion.span
-                className="absolute -bottom-1 left-0 right-0 h-px bg-gradient-to-r from-transparent via-violet-500 to-transparent"
+                className="absolute -bottom-1 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand-500 to-transparent"
                 initial={{ scaleX: 0 }}
                 animate={{ scaleX: 1 }}
                 transition={{ delay: 0.8, duration: 0.8 }}
@@ -137,7 +137,7 @@ export function HeroSection() {
         >
           <div className="relative mx-auto max-w-4xl">
             {/* Glow behind mockup */}
-            <div className="absolute -inset-4 bg-gradient-to-r from-violet-600/20 via-blue-600/20 to-violet-600/20 rounded-3xl blur-2xl" />
+            <div className="absolute -inset-4 bg-gradient-to-r from-brand-600/20 via-blue-600/20 to-brand-600/20 rounded-3xl blur-2xl" />
 
             {/* Mockup card */}
             <div className="relative glass-strong rounded-2xl border border-white/10 p-6 shadow-2xl">
@@ -163,7 +163,7 @@ export function HeroSection() {
                     className="glass rounded-xl p-4 border border-border/50"
                   >
                     <div className="flex items-center gap-2.5 mb-3">
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-blue-600 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-blue-600 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
                         {r.name.split(" ").map(n => n[0]).join("")}
                       </div>
                       <div className="min-w-0">
@@ -176,7 +176,7 @@ export function HeroSection() {
                         {r.conf}
                       </span>
                       {r.email ? (
-                        <span className="text-xs text-violet-400 font-mono truncate max-w-[100px]">{r.email}</span>
+                        <span className="text-xs text-brand-400 font-mono truncate max-w-[100px]">{r.email}</span>
                       ) : (
                         <span className="text-xs text-muted-foreground">No email</span>
                       )}

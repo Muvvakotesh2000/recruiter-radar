@@ -7,7 +7,7 @@ export function LandingFooter() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
           <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-blue-600 flex items-center justify-center">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-brand-500 to-blue-600 flex items-center justify-center">
               <Radar className="w-3.5 h-3.5 text-white" />
             </div>
             <span className="font-display text-sm font-bold text-white">RecruiterRadar</span>

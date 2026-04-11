@@ -112,7 +112,7 @@ export function EditJobModal({ open, onOpenChange, job, onSuccess }: EditJobModa
               error={errors.location?.message}
             />
             <p className="text-xs text-muted-foreground">
-              Separate multiple locations with <code className="text-violet-400">/</code> or comma.
+              Separate multiple locations with <code className="text-brand-400">/</code> or comma.
             </p>
           </div>
 

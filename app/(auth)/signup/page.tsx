@@ -16,7 +16,7 @@ export default async function SignupPage() {
     <div className="min-h-screen mesh-bg flex items-center justify-center p-4">
       {/* Background orbs */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-32 -right-32 w-96 h-96 bg-violet-600/10 rounded-full blur-3xl" />
+        <div className="absolute -top-32 -right-32 w-96 h-96 bg-brand-600/10 rounded-full blur-3xl" />
         <div className="absolute -bottom-32 -left-32 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl" />
       </div>
 
@@ -24,7 +24,7 @@ export default async function SignupPage() {
         {/* Logo */}
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2.5 group">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-blue-600 flex items-center justify-center shadow-lg group-hover:shadow-violet-500/25 transition-shadow">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-blue-600 flex items-center justify-center shadow-lg group-hover:shadow-brand-500/25 transition-shadow">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="3"/>
                 <circle cx="12" cy="12" r="7" strokeDasharray="2 3"/>
@@ -47,7 +47,7 @@ export default async function SignupPage() {
               Already have an account?{" "}
               <Link
                 href="/login"
-                className="text-violet-400 hover:text-violet-300 font-medium transition-colors"
+                className="text-brand-400 hover:text-brand-300 font-medium transition-colors"
               >
                 Sign in
               </Link>
@@ -57,9 +57,9 @@ export default async function SignupPage() {
 
         <p className="mt-6 text-center text-xs text-muted-foreground">
           By signing up, you agree to our{" "}
-          <span className="text-violet-400 cursor-pointer hover:text-violet-300">Terms of Service</span>{" "}
+          <span className="text-brand-400 cursor-pointer hover:text-brand-300">Terms of Service</span>{" "}
           and{" "}
-          <span className="text-violet-400 cursor-pointer hover:text-violet-300">Privacy Policy</span>.
+          <span className="text-brand-400 cursor-pointer hover:text-brand-300">Privacy Policy</span>.
         </p>
       </div>
     </div>

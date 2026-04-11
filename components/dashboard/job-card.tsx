@@ -92,20 +92,20 @@ export function JobCard({
       transition={{ delay: index * 0.06, duration: 0.35, ease: "easeOut" }}
     >
       <Link href={`/dashboard/${job.id}`} className="block group">
-        <div className="glass rounded-xl p-5 border border-border/50 hover:border-violet-500/30 hover:shadow-glow transition-all duration-300 cursor-pointer relative overflow-hidden">
+        <div className="glass rounded-xl p-5 border border-border/50 hover:border-brand-500/30 hover:shadow-glow transition-all duration-300 cursor-pointer relative overflow-hidden">
           {/* Gradient accent line */}
-          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-violet-500/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand-500/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
 
           <div className="flex items-start gap-4">
             {/* Company icon */}
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-violet-500/20 to-blue-500/20 border border-violet-500/20 flex items-center justify-center flex-shrink-0 group-hover:from-violet-500/30 group-hover:to-blue-500/30 transition-all">
-              <Building2 className="w-5 h-5 text-violet-400" />
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-500/20 to-blue-500/20 border border-brand-500/20 flex items-center justify-center flex-shrink-0 group-hover:from-brand-500/30 group-hover:to-blue-500/30 transition-all">
+              <Building2 className="w-5 h-5 text-brand-400" />
             </div>
 
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <h3 className="font-semibold font-display text-foreground truncate group-hover:text-violet-300 transition-colors">
+                  <h3 className="font-semibold font-display text-foreground truncate group-hover:text-brand-300 transition-colors">
                     {job.job_title}
                   </h3>
                   <p className="text-sm text-muted-foreground truncate">
@@ -156,7 +156,7 @@ export function JobCard({
                     size="icon-sm"
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(job); }}
                     title="Edit search"
-                    className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-violet-400"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-brand-400"
                   >
                     <Pencil className="w-3.5 h-3.5" />
                   </Button>
@@ -166,7 +166,7 @@ export function JobCard({
                     onClick={handleRegenerate}
                     loading={regenerating}
                     title="Regenerate leads"
-                    className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-violet-400"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-brand-400"
                   >
                     {!regenerating && <RefreshCw className="w-3.5 h-3.5" />}
                   </Button>
@@ -180,7 +180,7 @@ export function JobCard({
                   >
                     {!deleting && <Trash2 className="w-3.5 h-3.5" />}
                   </Button>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground/40 group-hover:text-violet-400 group-hover:translate-x-0.5 transition-all" />
+                  <ChevronRight className="w-4 h-4 text-muted-foreground/40 group-hover:text-brand-400 group-hover:translate-x-0.5 transition-all" />
                 </div>
               </div>
             </div>

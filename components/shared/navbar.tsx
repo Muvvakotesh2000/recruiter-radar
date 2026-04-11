@@ -52,7 +52,7 @@ export function DashboardNavbar({ user, profile }: DashboardNavbarProps) {
           href="/dashboard"
           className="flex items-center gap-2.5 group"
         >
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-blue-600 flex items-center justify-center shadow-md group-hover:shadow-violet-500/25 transition-shadow">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-blue-600 flex items-center justify-center shadow-md group-hover:shadow-brand-500/25 transition-shadow">
             <Radar className="w-4 h-4 text-white" />
           </div>
           <span className="font-display text-base font-bold text-white hidden sm:block">
@@ -75,7 +75,7 @@ export function DashboardNavbar({ user, profile }: DashboardNavbarProps) {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="flex items-center gap-2.5 px-2 py-1.5 rounded-xl hover:bg-secondary/60 transition-all group outline-none">
-              <Avatar className="h-8 w-8 ring-2 ring-border group-hover:ring-violet-500/50 transition-all">
+              <Avatar className="h-8 w-8 ring-2 ring-border group-hover:ring-brand-500/50 transition-all">
                 <AvatarImage src={profile?.avatar_url ?? undefined} />
                 <AvatarFallback className="text-xs">{initials}</AvatarFallback>
               </Avatar>
