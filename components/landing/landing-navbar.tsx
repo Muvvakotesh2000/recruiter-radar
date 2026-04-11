@@ -19,47 +19,30 @@ export function LandingNavbar() {
     <motion.header
       initial={{ y: -20, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
-      transition={{ duration: 0.5 }}
+      transition={{ duration: 0.4 }}
       className={`fixed top-0 left-0 right-0 z-50 h-16 transition-all duration-300 ${
-        scrolled
-          ? "glass-strong border-b border-border/50 shadow-xl"
-          : "bg-transparent"
+        scrolled ? "glass-strong border-b border-border/50" : "bg-transparent"
       }`}
     >
-      <div className="h-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
-        {/* Logo */}
+      <div className="h-full max-w-5xl mx-auto px-6 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2.5 group">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-blue-600 flex items-center justify-center shadow-md group-hover:shadow-brand-500/30 transition-shadow">
+          <div className="w-8 h-8 rounded-lg bg-brand-400 flex items-center justify-center">
             <Radar className="w-4 h-4 text-white" />
           </div>
-          <span className="font-display text-lg font-bold text-white">
+          <span className="font-display text-base font-bold text-white">
             RecruiterRadar
           </span>
         </Link>
 
-        {/* Nav */}
-        <nav className="hidden md:flex items-center gap-6">
-          {["Features", "How it works", "Pricing"].map((item) => (
-            <a
-              key={item}
-              href={`#${item.toLowerCase().replace(/ /g, "-")}`}
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {item}
-            </a>
-          ))}
-        </nav>
-
-        {/* CTA */}
         <div className="flex items-center gap-3">
           <Link href="/login">
-            <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
+            <Button variant="ghost" size="sm" className="text-zinc-400 hover:text-white">
               Sign in
             </Button>
           </Link>
           <Link href="/signup">
-            <Button variant="gradient" size="sm" className="shadow-glow">
-              Get started free
+            <Button size="sm" className="bg-brand-400 hover:bg-brand-500 text-white border-0">
+              Get started
             </Button>
           </Link>
         </div>

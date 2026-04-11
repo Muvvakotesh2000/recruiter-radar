@@ -2,57 +2,39 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Sparkles, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function CtaSection() {
   return (
-    <section className="py-28 relative overflow-hidden">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-        {/* Background glow */}
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="w-[600px] h-[300px] bg-brand-600/15 rounded-full blur-3xl" />
-        </div>
-
+    <section className="py-24 border-t border-border/30">
+      <div className="max-w-5xl mx-auto px-6">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 16 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          transition={{ duration: 0.6 }}
-          className="relative"
+          transition={{ duration: 0.5 }}
+          className="flex flex-col md:flex-row md:items-end justify-between gap-8"
         >
-          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-500/10 border border-brand-500/20 text-xs text-brand-400 font-medium mb-6">
-            <Sparkles className="w-3 h-3" />
-            Start for free today
-          </span>
-          <h2 className="font-display text-4xl sm:text-5xl lg:text-6xl font-black text-white mb-6 leading-tight">
-            Stop applying blind.{" "}
-            <br className="hidden sm:block" />
-            <span className="gradient-text">Start reaching out directly.</span>
-          </h2>
-          <p className="text-xl text-zinc-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-            Join thousands of job seekers who are getting more interviews by
-            skipping the queue and going straight to the recruiter.
-          </p>
+          <div>
+            <h2 className="font-display text-4xl sm:text-5xl font-black text-white leading-tight mb-4">
+              Stop applying<br />
+              <span className="text-brand-400">into the void.</span>
+            </h2>
+            <p className="text-zinc-400 text-lg max-w-sm">
+              You already did the hard part — finding the job. Now find the person.
+            </p>
+          </div>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+          <div className="flex flex-col gap-3 md:items-end flex-shrink-0">
             <Link href="/signup">
-              <Button variant="gradient" size="xl" className="gap-2 shadow-glow-lg">
-                <Sparkles className="w-5 h-5" />
-                Create free account
+              <Button className="bg-brand-400 hover:bg-brand-500 text-white border-0 h-12 px-8 text-base gap-2 w-full md:w-auto">
+                Get started free
                 <ArrowRight className="w-4 h-4" />
               </Button>
             </Link>
-            <Link href="/login">
-              <Button variant="glass" size="xl">
-                Sign in →
-              </Button>
-            </Link>
+            <p className="text-xs text-zinc-600 md:text-right">No credit card required</p>
           </div>
-
-          <p className="mt-6 text-sm text-muted-foreground">
-            No credit card required · Cancel anytime · Works with any AI provider
-          </p>
         </motion.div>
       </div>
     </section>
