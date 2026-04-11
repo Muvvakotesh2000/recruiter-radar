@@ -93,14 +93,38 @@ export function fuzzyCompanyMatch(resultCompany: string, inputCompany: string): 
     s
       .toLowerCase()
       .replace(/\b(inc|llc|ltd|corp|co\b|group|the|&|and)\b/g, " ")
-      .replace(/[^a-z0-9]/g, "")
+      .replace(/[^a-z0-9]/g, " ")
+      .replace(/\s+/g, " ")
       .trim();
   const r = norm(resultCompany);
   const c = norm(inputCompany);
   if (!r || !c || r.length < 2 || c.length < 2) return false;
+  if (r === c) return true;
   const shorter = r.length <= c.length ? r : c;
   const longer = r.length <= c.length ? c : r;
-  return longer.includes(shorter) || (shorter.length >= 4 && longer.startsWith(shorter.slice(0, 4)));
+  // Require word-boundary match to avoid "Apple" matching "Snapple" or "Pineapple"
+  const escaped = shorter.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&").replace(/\s+/g, " +");
+  return new RegExp(`(?:^| )${escaped}(?= |$)`).test(longer);
+}
+
+/**
+ * Check if the company appears in an employment context in the snippet,
+ * not just incidentally (e.g. "I interviewed at X" or "Previously at X").
+ */
+function companyInEmploymentContext(snippet: string, companyName: string): boolean {
+  const s = snippet.toLowerCase();
+  const cn = companyName.toLowerCase();
+  const idx = s.indexOf(cn);
+  if (idx === -1) return false;
+  // Within the first 80 chars → likely current employer in profile headline
+  if (idx < 80) return true;
+  // Preceded by employment words: "at", "@", "with", "for", "·"
+  const before = s.slice(Math.max(0, idx - 25), idx);
+  if (/(\bat\b|@|·|with\b|for\b)\s*$/.test(before)) return true;
+  // Followed immediately by recruiter-role words (e.g. "CompanyX Recruiter")
+  const after = s.slice(idx + cn.length, idx + cn.length + 20);
+  if (/^\s*(recruiter|talent|sourcer|hiring|hr |people )/.test(after)) return true;
+  return false;
 }
 
 // ─── State + Metro maps ─────────────────────────────────────────────────────────
@@ -257,7 +281,27 @@ const LOCATION_PATTERNS = [
   new RegExp(`\\b(${Object.values(STATE_ABBR).join("|")})\\b`),
 ];
 
+const JUNK_LOCATION_WORDS = /^(the|a|an|and|or|at|in|is|are|view|see|linkedin|profile|connect|join|follow)\b/i;
+
 export function extractLocation(text: string): string | null {
+  // ── LinkedIn-specific: location always appears before the first · in the snippet ──
+  // e.g. "Austin, Texas, United States · Talent Acquisition · 500+ connections"
+  // e.g. "Greater Austin Area · Senior Recruiter at Dell Technologies"
+  const dotIdx = text.indexOf("·");
+  if (dotIdx > 0) {
+    const beforeDot = text.slice(0, dotIdx).trim();
+    // Only use it if it looks like a location (short, no verbs, not a long sentence)
+    if (
+      beforeDot.length >= 3 &&
+      beforeDot.length <= 60 &&
+      !JUNK_LOCATION_WORDS.test(beforeDot) &&
+      !/\brecruiter\b|\btalent\b|\bmanager\b|\bengineer\b|\bpartner\b/i.test(beforeDot)
+    ) {
+      return beforeDot;
+    }
+  }
+
+  // ── General patterns ──────────────────────────────────────────────────────────
   for (const rx of LOCATION_PATTERNS) {
     const m = text.match(rx);
     if (m) {
@@ -265,7 +309,7 @@ export function extractLocation(text: string): string | null {
       if (
         loc.length >= 3 &&
         loc.length <= 60 &&
-        !/^(the|a|an|and|or|at|in|is|are)\b/i.test(loc)
+        !JUNK_LOCATION_WORDS.test(loc)
       ) {
         return loc;
       }
@@ -332,13 +376,12 @@ export function parseLinkedInResult(
 
   if (!rawName) return null;
 
-  // Verify company match
+  // Verify company match — require employment context, not just any mention
   const companyToCheck = rawCompany ?? "";
-  const companyInSnippet = result.snippet.toLowerCase().includes(companyName.toLowerCase());
-  if (companyToCheck && !fuzzyCompanyMatch(companyToCheck.trim(), companyName) && !companyInSnippet) {
-    return null;
-  }
-  if (!companyToCheck && !companyInSnippet) return null;
+  const titleCompanyMatch = companyToCheck ? fuzzyCompanyMatch(companyToCheck.trim(), companyName) : false;
+  const snippetEmploymentMatch = companyInEmploymentContext(result.snippet, companyName);
+  if (companyToCheck && !titleCompanyMatch && !snippetEmploymentMatch) return null;
+  if (!companyToCheck && !snippetEmploymentMatch) return null;
 
   // Title classification
   const titleClass = classifyTitle((rawTitle ?? "").trim());
