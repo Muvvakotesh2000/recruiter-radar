@@ -53,30 +53,17 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        violet: {
-          50: "#f5f3ff",
-          100: "#ede9fe",
-          200: "#ddd6fe",
-          300: "#c4b5fd",
-          400: "#a78bfa",
-          500: "#8b5cf6",
-          600: "#7c3aed",
-          700: "#6d28d9",
-          800: "#5b21b6",
-          900: "#4c1d95",
-          950: "#2e1065",
-        },
         brand: {
-          50: "#faf5ff",
-          100: "#f3e8ff",
-          200: "#e9d5ff",
-          300: "#d8b4fe",
-          400: "#c084fc",
-          500: "#a855f7",
-          600: "#9333ea",
-          700: "#7e22ce",
-          800: "#6b21a8",
-          900: "#581c87",
+          50: "#f0faf8",
+          100: "#d9f2ec",
+          200: "#b3e5d9",
+          300: "#8dd8c6",
+          400: "#76c4ae",
+          500: "#5aab96",
+          600: "#45897a",
+          700: "#34675d",
+          800: "#234540",
+          900: "#122423",
         },
       },
       borderRadius: {
@@ -93,11 +80,11 @@ const config: Config = {
         "gradient-conic":
           "conic-gradient(from 180deg at 50% 50%, var(--tw-gradient-stops))",
         "gradient-brand":
-          "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+          "linear-gradient(135deg, #76c4ae 0%, #45897a 100%)",
         "gradient-hero":
-          "linear-gradient(135deg, #0f0c29, #302b63, #24243e)",
+          "linear-gradient(135deg, #0a1f1c, #122423, #0f1e1b)",
         "mesh-gradient":
-          "radial-gradient(at 40% 20%, hsla(259,100%,70%,0.15) 0px, transparent 50%), radial-gradient(at 80% 0%, hsla(189,100%,56%,0.1) 0px, transparent 50%), radial-gradient(at 0% 50%, hsla(355,100%,93%,0.05) 0px, transparent 50%)",
+          "radial-gradient(at 40% 20%, hsla(163,40%,62%,0.15) 0px, transparent 50%), radial-gradient(at 80% 0%, hsla(163,40%,62%,0.08) 0px, transparent 50%), radial-gradient(at 0% 50%, hsla(163,40%,80%,0.05) 0px, transparent 50%)",
       },
       keyframes: {
         "accordion-down": {
@@ -129,8 +116,8 @@ const config: Config = {
           "50%": { transform: "translateY(-10px)" },
         },
         glow: {
-          "0%, 100%": { boxShadow: "0 0 20px rgba(139, 92, 246, 0.3)" },
-          "50%": { boxShadow: "0 0 40px rgba(139, 92, 246, 0.6)" },
+          "0%, 100%": { boxShadow: "0 0 20px rgba(118, 196, 174, 0.3)" },
+          "50%": { boxShadow: "0 0 40px rgba(118, 196, 174, 0.6)" },
         },
         pulse2: {
           "0%, 100%": { opacity: "1" },
@@ -149,9 +136,9 @@ const config: Config = {
         pulse2: "pulse2 2s ease-in-out infinite",
       },
       boxShadow: {
-        glass: "0 8px 32px 0 rgba(31, 38, 135, 0.37)",
-        glow: "0 0 20px rgba(139, 92, 246, 0.4)",
-        "glow-lg": "0 0 40px rgba(139, 92, 246, 0.5)",
+        glass: "0 8px 32px 0 rgba(10, 31, 28, 0.37)",
+        glow: "0 0 20px rgba(118, 196, 174, 0.4)",
+        "glow-lg": "0 0 40px rgba(118, 196, 174, 0.5)",
         card: "0 4px 24px rgba(0, 0, 0, 0.4)",
         "card-hover": "0 8px 40px rgba(0, 0, 0, 0.5)",
       },
