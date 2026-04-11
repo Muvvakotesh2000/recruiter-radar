@@ -219,7 +219,7 @@ Return ONLY valid JSON, no markdown or explanation:
     {
       "full_name": "string",
       "job_title": "THE RECRUITER'S OWN ROLE at the company (e.g. 'Senior Technical Recruiter', 'Talent Acquisition Partner', 'Recruiting Manager') — NEVER the job being advertised ('${job_title}'). If their exact title is unknown, use a generic like 'Recruiter' or 'Talent Acquisition'.",
-      "location": "city, state or country if visible in results, else null",
+      "location": "THE RECRUITER'S OWN location as shown on their profile (e.g. 'Berlin, Germany', 'Greater Austin Area') — NOT the job location ('${location}'). Only include if explicitly visible in the search result snippet for this person. Set null if unknown.",
       "linkedin_url": "string or null",
       "email": "string or null",
       "email_type": "verified|estimated|unknown",
