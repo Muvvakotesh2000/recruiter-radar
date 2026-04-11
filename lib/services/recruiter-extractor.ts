@@ -282,25 +282,37 @@ const LOCATION_PATTERNS = [
 ];
 
 const JUNK_LOCATION_WORDS = /^(the|a|an|and|or|at|in|is|are|view|see|linkedin|profile|connect|join|follow)\b/i;
+const ROLE_WORDS = /\b(recruiter|talent|manager|engineer|partner|director|coordinator|sourcer|specialist|analyst|developer|designer)\b/i;
+
+/**
+ * Extract the profile's actual location from a LinkedIn snippet.
+ *
+ * LinkedIn snippets contain the person's location as one of the
+ * "·"-separated segments. This scans all segments for the one that
+ * looks like a location rather than a job title or connections count.
+ *
+ * e.g. "View Anam's profile ... Berlin, Germany · Senior Talent Partner at ..."
+ *   → finds "Berlin, Germany" (not "Senior Talent Partner")
+ *
+ * e.g. "Greater Austin Area · 500+ connections · Senior Recruiter at Dell"
+ *   → finds "Greater Austin Area"
+ */
+export function extractLinkedInLocation(snippet: string): string | null {
+  // Split on middle-dot and scan each segment
+  const segments = snippet.split("·").map(s => s.trim());
+  for (const seg of segments) {
+    if (seg.length < 3 || seg.length > 65) continue;
+    if (JUNK_LOCATION_WORDS.test(seg)) continue;
+    if (ROLE_WORDS.test(seg)) continue;           // job title, not location
+    if (/\d{2,}/.test(seg)) continue;             // "500+ connections", years, etc.
+    if (/\bat\b|\bfor\b|\bwith\b/i.test(seg)) continue; // "Senior Recruiter at Dell"
+    // Must look like a place: capital letter, optionally "City, ST" or "Greater X Area"
+    if (/^[A-Z]/.test(seg)) return seg;
+  }
+  return null;
+}
 
 export function extractLocation(text: string): string | null {
-  // ── LinkedIn-specific: location always appears before the first · in the snippet ──
-  // e.g. "Austin, Texas, United States · Talent Acquisition · 500+ connections"
-  // e.g. "Greater Austin Area · Senior Recruiter at Dell Technologies"
-  const dotIdx = text.indexOf("·");
-  if (dotIdx > 0) {
-    const beforeDot = text.slice(0, dotIdx).trim();
-    // Only use it if it looks like a location (short, no verbs, not a long sentence)
-    if (
-      beforeDot.length >= 3 &&
-      beforeDot.length <= 60 &&
-      !JUNK_LOCATION_WORDS.test(beforeDot) &&
-      !/\brecruiter\b|\btalent\b|\bmanager\b|\bengineer\b|\bpartner\b/i.test(beforeDot)
-    ) {
-      return beforeDot;
-    }
-  }
-
   // ── General patterns ──────────────────────────────────────────────────────────
   for (const rx of LOCATION_PATTERNS) {
     const m = text.match(rx);
@@ -390,8 +402,12 @@ export function parseLinkedInResult(
   // If title is unknown AND no company match in snippet, skip — too ambiguous
   if (titleClass === "unknown" && !rawTitle) return null;
 
+  // Use LinkedIn-specific location extractor (scans · segments) first,
+  // fall back to general patterns only if that fails.
   const location =
-    extractLocation(result.snippet) ?? extractLocation(result.title);
+    extractLinkedInLocation(result.snippet) ??
+    extractLocation(result.snippet) ??
+    extractLocation(result.title);
 
   const emailMatch = result.snippet.match(/\b[\w.+%-]{2,30}@[\w.-]+\.[a-z]{2,}\b/i);
   const email = emailMatch?.[0]?.toLowerCase() ?? null;
