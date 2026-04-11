@@ -22,9 +22,9 @@ const buttonVariants = cva(
           "hover:bg-accent hover:text-accent-foreground active:scale-[0.98]",
         link: "text-primary underline-offset-4 hover:underline",
         gradient:
-          "bg-gradient-to-r from-brand-600 to-blue-600 text-white shadow-lg hover:from-brand-500 hover:to-blue-500 hover:shadow-glow active:scale-[0.98] font-semibold",
+          "bg-brand-400 text-white shadow-sm hover:bg-brand-500 active:scale-[0.98] font-semibold",
         "gradient-outline":
-          "border border-brand-500/30 bg-transparent text-brand-400 hover:bg-brand-500/10 hover:border-brand-500/60 active:scale-[0.98]",
+          "border border-brand-400/40 bg-transparent text-brand-400 hover:bg-brand-400/10 hover:border-brand-400/70 active:scale-[0.98]",
         glass:
           "glass text-foreground hover:bg-white/8 active:scale-[0.98]",
       },

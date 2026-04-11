@@ -274,7 +274,7 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
         >
           <div className="flex flex-col sm:flex-row sm:items-start gap-4">
             {/* Company icon */}
-            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-500/20 to-blue-500/20 border border-brand-500/20 flex items-center justify-center flex-shrink-0">
+            <div className="w-14 h-14 rounded-xl bg-brand-400/15 border border-brand-500/20 flex items-center justify-center flex-shrink-0">
               <Building2 className="w-7 h-7 text-brand-400" />
             </div>
 
@@ -545,7 +545,7 @@ function GeneratingLeadsState() {
         {/* Progress bar */}
         <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden mb-3">
           <motion.div
-            className="h-full bg-gradient-to-r from-brand-600 to-blue-500 rounded-full"
+            className="h-full bg-brand-400 rounded-full"
             animate={{ width: `${progress}%` }}
             transition={{ duration: 1, ease: "easeOut" }}
           />

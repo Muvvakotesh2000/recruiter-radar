@@ -207,7 +207,7 @@ function GeneratingState({ text }: { text: string }) {
         <div className="absolute inset-0 rounded-full border-2 border-brand-500/20 animate-ping" />
         <div className="absolute inset-2 rounded-full border-2 border-brand-500/30 animate-ping [animation-delay:0.3s]" />
         <div className="absolute inset-4 rounded-full border-2 border-brand-500/40 animate-ping [animation-delay:0.6s]" />
-        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-brand-600 to-blue-600 flex items-center justify-center z-10 shadow-glow">
+        <div className="w-12 h-12 rounded-full bg-brand-400 flex items-center justify-center z-10 shadow-glow">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="3"/>
             <circle cx="12" cy="12" r="7" strokeDasharray="2 3"/>
@@ -233,7 +233,7 @@ function GeneratingState({ text }: { text: string }) {
       </div>
 
       <div className="w-48 h-1 bg-secondary rounded-full overflow-hidden">
-        <div className="h-full bg-gradient-to-r from-brand-600 to-blue-600 rounded-full animate-pulse w-3/4" />
+        <div className="h-full bg-brand-400 rounded-full animate-pulse w-3/4" />
       </div>
 
       <p className="text-xs text-muted-foreground max-w-xs text-center">

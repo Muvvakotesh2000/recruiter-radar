@@ -52,7 +52,7 @@ export function DashboardNavbar({ user, profile }: DashboardNavbarProps) {
           href="/dashboard"
           className="flex items-center gap-2.5 group"
         >
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-blue-600 flex items-center justify-center shadow-md group-hover:shadow-brand-500/25 transition-shadow">
+          <div className="w-8 h-8 rounded-lg bg-brand-400 flex items-center justify-center shadow-md group-hover:shadow-brand-500/25 transition-shadow">
             <Radar className="w-4 h-4 text-white" />
           </div>
           <span className="font-display text-base font-bold text-white hidden sm:block">

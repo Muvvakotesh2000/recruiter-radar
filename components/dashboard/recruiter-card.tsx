@@ -144,14 +144,14 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
       className="relative glass rounded-2xl border border-border/50 hover:border-brand-500/30 transition-all duration-300 overflow-hidden group"
     >
       {/* Top accent bar */}
-      <div className="h-0.5 bg-gradient-to-r from-brand-600 via-blue-500 to-brand-600 opacity-40 group-hover:opacity-80 transition-opacity" />
+      <div className="h-0.5 bg-brand-400 opacity-40 group-hover:opacity-80 transition-opacity" />
 
       <div className="p-5 space-y-4">
 
         {/* ── Header ── */}
         <div className="flex items-start gap-3.5">
           <Avatar className="h-12 w-12 flex-shrink-0 ring-2 ring-brand-500/20 group-hover:ring-brand-500/40 transition-all">
-            <AvatarFallback className="bg-gradient-to-br from-brand-500/20 to-blue-500/20 text-sm font-bold text-brand-200">
+            <AvatarFallback className="bg-brand-400/15 text-sm font-bold text-brand-200">
               {getInitials(lead.full_name)}
             </AvatarFallback>
           </Avatar>

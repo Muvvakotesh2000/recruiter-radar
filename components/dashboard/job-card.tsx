@@ -98,7 +98,7 @@ export function JobCard({
 
           <div className="flex items-start gap-4">
             {/* Company icon */}
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-500/20 to-blue-500/20 border border-brand-500/20 flex items-center justify-center flex-shrink-0 group-hover:from-brand-500/30 group-hover:to-blue-500/30 transition-all">
+            <div className="w-11 h-11 rounded-xl bg-brand-400/15 border border-brand-500/20 flex items-center justify-center flex-shrink-0 group-hover:bg-brand-400/20 transition-all">
               <Building2 className="w-5 h-5 text-brand-400" />
             </div>
 

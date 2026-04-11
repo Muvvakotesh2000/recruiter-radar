@@ -24,7 +24,7 @@ export default async function SignupPage() {
         {/* Logo */}
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2.5 group">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-blue-600 flex items-center justify-center shadow-lg group-hover:shadow-brand-500/25 transition-shadow">
+            <div className="w-10 h-10 rounded-xl bg-brand-400 flex items-center justify-center shadow-lg group-hover:shadow-brand-500/25 transition-shadow">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="3"/>
                 <circle cx="12" cy="12" r="7" strokeDasharray="2 3"/>
