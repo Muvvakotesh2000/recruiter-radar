@@ -668,20 +668,13 @@ function parseMgmtLinkedInResult(
   if (!rawName) return null;
 
   // ── Company must match the target in the headline ───────────────────────────
-  // Require the company parsed from the headline to match.
-  // This ensures we're not matching "CEO at SomeOtherCompany" for an unrelated result
-  // that merely mentions the target company elsewhere in the snippet.
   if (!rawCompany || !fuzzyCompanyMatch(rawCompany.trim(), companyName)) return null;
 
-  // ── Management title must be present in the headline ────────────────────────
-  // Only accept the title from rawTitle (the parsed headline field).
-  // Do NOT pull from the snippet — snippet text is unreliable and causes bare
-  // keywords like "president" to be assigned as someone's title incorrectly.
-  // If no rawTitle was parsed (Format 3), skip this result entirely rather than guess.
-  if (!rawTitle) return null;
-  if (!MGMT_TITLE_RE.test(rawTitle)) return null;
-
-  const jobTitle = rawTitle.trim();
+  // ── Title: use headline title if found, otherwise "Management" ──────────────
+  // Trust the search queries to have targeted management/leadership; if the
+  // headline doesn't expose a title (Format 3), label them "Management" rather
+  // than skipping them.
+  const jobTitle = rawTitle?.trim() || "Management";
 
   const location = sanitiseLocation(extractLinkedInLocation(result.snippet));
   const emailMatch = result.snippet.match(/\b[\w.+%-]{2,30}@[\w.-]+\.[a-z]{2,}\b/i);
