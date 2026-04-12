@@ -411,9 +411,42 @@ export async function runGeneration(
       );
     }
 
+    // ── Phase 4.8: Broad employee fallback ───────────────────────────────────────
+    // If both the recruiter pipeline and management fallback found nothing,
+    // search for anyone currently working at the company and show them.
+    let broadEmployeeLeads: ParsedLead[] = [];
+
+    if (finalLeads.length <= 2 && managementLeads.length === 0) {
+      console.log("[Generation] Phase 4.8 — no recruiters or management found; searching for any current employee");
+
+      const broadQuery = `site:linkedin.com/in "${input.company_name}"`;
+      const broadResults = await searchProvider
+        .search(broadQuery, 15)
+        .catch((err) => {
+          console.warn(`[Generation] Broad employee query failed: ${err.message}`);
+          return null;
+        });
+
+      if (broadResults) {
+        const broadSeenUrls = new Set(seenUrls);
+        for (const r of broadResults.results) {
+          if (broadSeenUrls.has(r.url) || !r.snippet.trim()) continue;
+          broadSeenUrls.add(r.url);
+          const lead = parseAnyCurrentEmployeeResult(r, input.company_name);
+          if (lead) {
+            lead.score = scoreLead(lead, input);
+            lead.outreach_message = generateOutreachMessage(lead, input);
+            broadEmployeeLeads.push(lead);
+          }
+        }
+        broadEmployeeLeads = deduplicateLeads(broadEmployeeLeads);
+        console.log(`[Generation] Phase 4.8 — found ${broadEmployeeLeads.length} current employee(s)`);
+      }
+    }
+
     // Merge management fallback into final leads (after recruiter leads)
-    const allLeads = managementLeads.length > 0
-      ? deduplicateLeads([...finalLeads, ...managementLeads])
+    const allLeads = managementLeads.length > 0 || broadEmployeeLeads.length > 0
+      ? deduplicateLeads([...finalLeads, ...managementLeads, ...broadEmployeeLeads])
       : finalLeads;
 
     // Apply emails to management leads too
@@ -452,6 +485,7 @@ export async function runGeneration(
       leads_parsed: dedupedParsed.length,
       leads_from_ai: aiLeads.length,
       management_fallback: managementLeads.length,
+      broad_employee_fallback: broadEmployeeLeads.length,
       total: finalAllLeads.length,
     });
 
@@ -515,6 +549,70 @@ export async function runGeneration(
 
     throw error;
   }
+}
+
+// ─── Broad current-employee parser ────────────────────────────────────────────
+
+/**
+ * Parse any LinkedIn result for a current employee at the company.
+ * Used only in Phase 4.8 (last-resort fallback when no recruiters or management found).
+ * Accepts any title — just requires current employment at the target company.
+ */
+function parseAnyCurrentEmployeeResult(
+  result: SearchResult,
+  companyName: string
+): ParsedLead | null {
+  if (!result.url.includes("linkedin.com/in/")) return null;
+
+  // Reject former employees
+  if (looksLikeFormerEmployee(result.title, result.snippet, companyName)) return null;
+
+  let rawName: string | null = null;
+  let rawTitle: string | null = null;
+  let rawCompany: string | null = null;
+
+  // Format 1: "Name - Title at Company | LinkedIn"
+  const m1 = result.title.match(
+    /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,80}?)\s+(?:at|@)\s+([^|,·•]{3,55}?)(?:,\s*[^|]+?)?\s*[|·]/
+  );
+  if (m1) { rawName = m1[1]; rawTitle = m1[2]; rawCompany = m1[3]; }
+
+  // Format 2: "Name - Title · Company | LinkedIn"
+  if (!rawName) {
+    const m2 = result.title.match(
+      /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,80}?)\s*[·•]\s*([^|,]{3,55}?)\s*\|/
+    );
+    if (m2) { rawName = m2[1]; rawTitle = m2[2]; rawCompany = m2[3]; }
+  }
+
+  // Format 3: "Name - Company | LinkedIn"
+  if (!rawName) {
+    const m3 = result.title.match(
+      /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*([^|·•]{3,55}?)\s*\|/
+    );
+    if (m3) { rawName = m3[1]; rawCompany = m3[2]; }
+  }
+
+  if (!rawName) return null;
+  if (!rawCompany || !fuzzyCompanyMatch(rawCompany.trim(), companyName)) return null;
+
+  const location = sanitiseLocation(extractLinkedInLocation(result.snippet));
+  const emailMatch = result.snippet.match(/\b[\w.+%-]{2,30}@[\w.-]+\.[a-z]{2,}\b/i);
+  const email = emailMatch?.[0]?.toLowerCase() ?? null;
+
+  return {
+    full_name: rawName.trim(),
+    job_title: rawTitle?.trim() || "Employee",
+    company: companyName,
+    location,
+    linkedin_url: result.url,
+    email,
+    email_type: email ? "verified" : "unknown",
+    source: `[broad employee fallback] ${result.url} — ${result.snippet.slice(0, 100)}`,
+    confidence_level: "Low",
+    score: 0,
+    outreach_message: "",
+  };
 }
 
 // ─── Management lead parser ────────────────────────────────────────────────────
