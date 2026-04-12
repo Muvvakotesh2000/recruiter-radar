@@ -110,6 +110,32 @@ export function fuzzyCompanyMatch(resultCompany: string, inputCompany: string): 
 /** Words that indicate a non-employment relationship with the company */
 const CERT_WORDS = /\b(certified|certification|certificate|credential|badge|course|training|bootcamp|program|exam|assessment|licensed|accredited|issued by|awarded by|completion)\b/i;
 
+/** Signals that the person is a *former* employee, not a current one */
+const FORMER_WORDS = /\b(former|formerly|ex[-\s]|previously|past\s+\w+\s+at|alumni|alum|left\s+|no\s+longer)\b/i;
+
+/**
+ * Returns true if the title or snippet indicates the person used to work
+ * at this company but doesn't currently — e.g. "Former Recruiter at Acme".
+ * We check a window around the company name so we don't reject someone
+ * who e.g. hired a former employee.
+ */
+export function looksLikeFormerEmployee(title: string, snippet: string, companyName: string): boolean {
+  const combined = `${title} ${snippet}`.toLowerCase();
+  const cn = companyName.toLowerCase();
+  const idx = combined.indexOf(cn);
+
+  // Check title-level "former" — covers "Former Senior Recruiter at Acme | LinkedIn"
+  if (FORMER_WORDS.test(title)) return true;
+
+  // Check within ±60 chars of the company name in the combined text
+  if (idx !== -1) {
+    const window = combined.slice(Math.max(0, idx - 60), idx + cn.length + 60);
+    if (FORMER_WORDS.test(window)) return true;
+  }
+
+  return false;
+}
+
 /**
  * Check if the company appears in an employment context in the snippet.
  * Returns false for certification/credential contexts even if the company
@@ -419,6 +445,9 @@ export function parseLinkedInResult(
   // e.g. "Name - Google Cloud Certified | LinkedIn" → rawCompany = "Google Cloud Certified"
   if (rawCompany && looksLikeCertification(rawCompany)) return null;
   if (rawTitle && looksLikeCertification(rawTitle)) return null;
+
+  // Reject former employees — "Former Recruiter at Acme", "Previously at Acme", etc.
+  if (looksLikeFormerEmployee(result.title, result.snippet, companyName)) return null;
 
   // Verify company match — require employment context, not just any mention
   const companyToCheck = rawCompany ?? "";

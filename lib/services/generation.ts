@@ -23,6 +23,7 @@ import {
   generateOutreachMessage,
   sanitiseLocation,
   extractLinkedInLocation,
+  looksLikeFormerEmployee,
   type ParsedLead,
 } from "@/lib/services/recruiter-extractor";
 import type { RecruiterSearchInput } from "@/types/ai";
@@ -543,6 +544,9 @@ function parseMgmtLinkedInResult(
 
   // Must contain a management title somewhere
   if (!MGMT_TITLE_RE.test(text)) return null;
+
+  // Reject former employees — "Former CEO at Acme", "Previously at Acme", etc.
+  if (looksLikeFormerEmployee(result.title, result.snippet, companyName)) return null;
 
   // Extract name from title using same LinkedIn formats as main parser
   let rawName: string | null = null;
