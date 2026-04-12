@@ -671,15 +671,19 @@ export function generateOutreachMessage(
 
   const tiers = buildLocationTiers(location);
   const tierScore = locationTierScore(lead.location, tiers);
-  const sharedLocation = tierScore <= 1; // exact city OR same metro = shared location
+  const sharedLocation = tierScore <= 1; // exact city OR same metro
 
-  let msg = `Hi ${firstName}, I recently applied for the ${job_title} role at ${company_name} in ${location}.`;
+  // Opening — direct, specific to role
+  let msg = `Hi ${firstName}, I came across the ${job_title} opening at ${company_name} and wanted to reach out directly.`;
 
+  // Location line — only when it's a genuine match
   if (sharedLocation && lead.location) {
-    msg += ` I noticed you're also based in ${lead.location} — great to see a local connection!`;
+    msg += ` I'm also based in ${lead.location}, so the role is a great fit location-wise.`;
   }
 
-  msg += ` Are you involved with this opening or could you point me to the right person? Would love to hear more about the role and the team if you have a moment. Thanks!`;
+  // Core ask — confident, not apologetic
+  msg += ` I have strong experience in this area and I'm genuinely excited about what ${company_name} is building.`;
+  msg += ` Would you be open to a quick chat, or could you share a bit more about what you're looking for in this role?`;
 
   return msg;
 }

@@ -225,7 +225,7 @@ Return ONLY valid JSON, no markdown or explanation:
       "email_type": "verified|estimated|unknown",
       "confidence_level": "High|Medium|Low",
       "source": "exact result number and snippet text that confirmed this person works at ${company_name}",
-      "outreach_message": "personalized outreach message: (1) mention that you applied for the ${job_title} role at ${company_name} in ${location}, (2) IF the recruiter's location matches or is close to the job location — mention that you noticed they are also based there; ELSE skip the location mention entirely, (3) ask whether they are familiar with or involved in this opening, (4) if so, ask if they can share more about the role or the team. Keep it friendly, concise (3-4 sentences), and conversational — not overly formal. Never force a location comparison that doesn't exist."
+      "outreach_message": "Write a short, natural cold outreach message (3-4 sentences) from the job seeker to this specific recruiter. Rules: (1) Open with 'Hi [first name],' then mention you came across the ${job_title} role at ${company_name} and wanted to reach out directly — do NOT say you have already applied. (2) Only mention shared location if the recruiter's location matches or is near ${location} — otherwise skip it entirely. (3) Express genuine interest in what ${company_name} is building or working on — be specific if possible. (4) End with a clear, confident ask: offer to chat or ask what they are looking for in this role. No filler phrases like 'if you have a moment' or 'hope this finds you well'. Sound like a real person, not a template."
     }
   ]
 }`;
@@ -268,7 +268,7 @@ INSTRUCTIONS:
 6. If an email is not explicitly known, set email: null and email_type: "unknown"
 7. Prefer 2-5 useful contacts when possible.
 8. The source field must explain why this person was selected.
-9. Outreach messages: (1) mention you applied for the role at the company in the job location, (2) ONLY mention the recruiter's location if it matches or is close to the job location — otherwise skip it, (3) ask if they are familiar with or involved in this role, (4) if so, ask if they can share more about the role or team. Keep it friendly, concise (3-4 sentences), conversational. Never force a location comparison that doesn't fit.
+9. Outreach messages: Write 3-4 natural sentences. (1) Start with 'Hi [first name],' and say you came across the role and wanted to reach out directly — do NOT say the person has already applied. (2) Only mention shared location if recruiter's location matches or is near the job location — skip otherwise. (3) Show genuine interest in what the company is building. (4) End with a confident ask — offer to chat or ask what they are looking for. No filler phrases. Sound like a real person wrote it.
 
 Return ONLY valid JSON in this exact schema:
 {
