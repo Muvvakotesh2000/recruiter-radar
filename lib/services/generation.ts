@@ -22,6 +22,7 @@ import {
   scoreLead,
   generateOutreachMessage,
   sanitiseLocation,
+  extractLinkedInLocation,
   type ParsedLead,
 } from "@/lib/services/recruiter-extractor";
 import type { RecruiterSearchInput } from "@/types/ai";
@@ -391,48 +392,18 @@ export async function runGeneration(
         );
       });
 
-      // Parse with standard extractor (management titles pass SECONDARY_HIRING_TERMS check)
-      const { parsed: mgmtParsed } = extractWithoutAI(mgmtFiltered, input.company_name);
-
-      // If non-AI parsing didn't catch them, use AI fallback on management results
-      let mgmtAiLeads: ParsedLead[] = [];
-      if (mgmtParsed.length === 0 && mgmtFiltered.length > 0 && aiProvider.extractContacts) {
-        try {
-          const mgmtAiResult = await aiProvider.extractContacts(
-            input,
-            mgmtFiltered.slice(0, MAX_AI_RESULTS),
-            hunterData ?? null
-          );
-          mgmtAiLeads = (mgmtAiResult.recruiters ?? []).map((r) => {
-            const lead: ParsedLead = {
-              full_name: r.full_name,
-              job_title: r.job_title ?? "Founder / Leadership",
-              company: input.company_name,
-              location: sanitiseLocation(r.location),
-              linkedin_url: r.linkedin_url ?? null,
-              email: r.email ?? null,
-              email_type: r.email_type ?? "unknown",
-              source: r.source,
-              confidence_level: "Medium",
-              score: 0,
-              outreach_message: r.outreach_message ?? "",
-            };
-            lead.score = scoreLead(lead, input);
-            return lead;
-          });
-          console.log(`[Generation] Phase 4.7 — AI found ${mgmtAiLeads.length} management contacts`);
-        } catch (err) {
-          console.warn("[Generation] Management AI fallback failed:", err);
+      // Use the dedicated management parser (accepts founder/CEO/CTO/VP/etc. titles)
+      const mgmtParsed: ParsedLead[] = [];
+      for (const r of mgmtFiltered) {
+        const lead = parseMgmtLinkedInResult(r, input.company_name, input);
+        if (lead) {
+          lead.score = scoreLead(lead, input);
+          lead.outreach_message = generateOutreachMessage(lead, input);
+          mgmtParsed.push(lead);
         }
       }
 
-      // Score and generate outreach for non-AI parsed management leads
-      for (const lead of mgmtParsed) {
-        lead.score = scoreLead(lead, input);
-        lead.outreach_message = generateOutreachMessage(lead, input);
-      }
-
-      managementLeads = deduplicateLeads([...mgmtParsed, ...mgmtAiLeads]);
+      managementLeads = deduplicateLeads(mgmtParsed);
       console.log(
         `[Generation] Phase 4.7 — adding ${managementLeads.length} management contact(s) as fallback`
       );
@@ -542,6 +513,90 @@ export async function runGeneration(
 
     throw error;
   }
+}
+
+// ─── Management lead parser ────────────────────────────────────────────────────
+
+const MGMT_TITLE_RE = /\b(founder|co-?founder|chief executive|ceo|chief technology|cto|chief operating|coo|chief product|cpo|chief people|president|vice president|\bvp\b|head of|director of|director|general manager|managing director|\blead\b|team lead)\b/i;
+
+/**
+ * Parse a LinkedIn search result specifically for founder/leadership contacts.
+ * Used only in the management fallback (Phase 4.7).
+ * Does not require recruiter keywords — accepts any management title.
+ */
+function parseMgmtLinkedInResult(
+  result: SearchResult,
+  companyName: string,
+  input: RecruiterSearchInput
+): ParsedLead | null {
+  if (!result.url.includes("linkedin.com/in/")) return null;
+
+  const text = `${result.title} ${result.snippet}`;
+
+  // Must mention the company
+  const companyNorm = companyName.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const textNorm = text.toLowerCase().replace(/[^a-z0-9\s]/g, "");
+  if (
+    !text.toLowerCase().includes(companyName.toLowerCase()) &&
+    !textNorm.includes(companyNorm)
+  ) return null;
+
+  // Must contain a management title somewhere
+  if (!MGMT_TITLE_RE.test(text)) return null;
+
+  // Extract name from title using same LinkedIn formats as main parser
+  let rawName: string | null = null;
+  let rawTitle: string | null = null;
+
+  const m1 = result.title.match(
+    /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,80}?)\s+(?:at|@)\s+[^|,·•]{3,55}?(?:,\s*[^|]+?)?\s*[|·]/
+  );
+  if (m1) { rawName = m1[1]; rawTitle = m1[2]; }
+
+  if (!rawName) {
+    const m2 = result.title.match(
+      /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,80}?)\s*[·•]\s*[^|,]{3,55}?\s*\|/
+    );
+    if (m2) { rawName = m2[1]; rawTitle = m2[2]; }
+  }
+
+  if (!rawName) {
+    const m3 = result.title.match(
+      /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*[^|·•]{3,55}?\s*\|/
+    );
+    if (m3) {
+      rawName = m3[1];
+      // Pull title from snippet
+      const sm = result.snippet.match(MGMT_TITLE_RE);
+      rawTitle = sm ? sm[0] : null;
+    }
+  }
+
+  if (!rawName) return null;
+
+  // If no title from heading, extract from snippet
+  if (!rawTitle) {
+    const sm = result.snippet.match(MGMT_TITLE_RE);
+    rawTitle = sm ? sm[0] : "Leadership";
+  }
+
+  const location = sanitiseLocation(extractLinkedInLocation(result.snippet));
+  const emailMatch = result.snippet.match(/\b[\w.+%-]{2,30}@[\w.-]+\.[a-z]{2,}\b/i);
+  const email = emailMatch?.[0]?.toLowerCase() ?? null;
+
+  return {
+    full_name: rawName.trim(),
+    job_title: rawTitle.trim(),
+    company: companyName,
+    location,
+    linkedin_url: result.url,
+    email,
+    email_type: email ? "verified" : "unknown",
+    source: `[management fallback] ${result.url} — ${result.snippet.slice(0, 100)}`,
+    confidence_level: "Medium",
+    score: 0,
+    outreach_message: "",
+  };
 }
 
 // ─── Signal scoring for sort order ─────────────────────────────────────────────
