@@ -667,23 +667,17 @@ export function generateOutreachMessage(
   input: RecruiterSearchInput
 ): string {
   const firstName = lead.full_name.split(/\s+/)[0];
-  const { company_name, job_title, location } = input;
+  const { company_name, location } = input;
 
   const tiers = buildLocationTiers(location);
   const tierScore = locationTierScore(lead.location, tiers);
   const sharedLocation = tierScore <= 1; // exact city OR same metro
 
-  // Opening — direct, specific to role
-  let msg = `Hi ${firstName}, I came across the ${job_title} opening at ${company_name} and wanted to reach out directly.`;
-
-  // Location line — only when it's a genuine match
   if (sharedLocation && lead.location) {
-    msg += ` I'm also based in ${lead.location}, so the role is a great fit location-wise.`;
+    // Location match — mention the shared location as the connection point
+    return `Hi ${firstName}, I came across your profile while exploring opportunities at ${company_name} and noticed we're both based in ${lead.location}. I'm really interested in what ${company_name} is building and would love to connect with someone on the team. Would you be open to a quick conversation?`;
+  } else {
+    // No location match — keep it general, no location mention
+    return `Hi ${firstName}, I came across your profile while exploring opportunities at ${company_name} and wanted to reach out. I'm genuinely excited about what ${company_name} is working on and would love to connect with someone on the talent team. Would you be open to a quick chat?`;
   }
-
-  // Core ask — confident, not apologetic
-  msg += ` I have strong experience in this area and I'm genuinely excited about what ${company_name} is building.`;
-  msg += ` Would you be open to a quick chat, or could you share a bit more about what you're looking for in this role?`;
-
-  return msg;
 }
