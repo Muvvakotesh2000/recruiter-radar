@@ -597,6 +597,11 @@ function parseAnyCurrentEmployeeResult(
   }
 
   if (!rawName) return null;
+
+  // Strip trailing "@company" suffix from rawTitle (e.g. "Engineer @Acme" → "Engineer")
+  if (rawTitle) rawTitle = rawTitle.replace(/\s*@\S+$/, "").trim() || null;
+
+  // Headline company must match — if it doesn't, person currently works elsewhere
   if (!rawCompany || !fuzzyCompanyMatch(rawCompany.trim(), companyName)) return null;
 
   const location = sanitiseLocation(extractLinkedInLocation(result.snippet));
@@ -645,11 +650,19 @@ function parseMgmtLinkedInResult(
   let rawTitle: string | null = null;
   let rawCompany: string | null = null;
 
-  // Format 1: "Name - Title at Company | LinkedIn"
+  // Format 1: "Name - Title at/@ Company | LinkedIn" (space-@ or word-at)
   const m1 = result.title.match(
     /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,80}?)\s+(?:at|@)\s+([^|,·•]{3,55}?)(?:,\s*[^|]+?)?\s*[|·]/
   );
   if (m1) { rawName = m1[1]; rawTitle = m1[2]; rawCompany = m1[3]; }
+
+  // Format 1b: "Name - Title @Company | LinkedIn" (@ with no space before company)
+  if (!rawName) {
+    const m1b = result.title.match(
+      /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,60}?)\s*@([\w][\w.\-]{2,50}?)\s*[|·,]/
+    );
+    if (m1b) { rawName = m1b[1]; rawTitle = m1b[2]; rawCompany = m1b[3]; }
+  }
 
   // Format 2: "Name - Title · Company | LinkedIn"
   if (!rawName) {
@@ -669,12 +682,17 @@ function parseMgmtLinkedInResult(
 
   if (!rawName) return null;
 
-  // ── Company must match in the headline OR be clearly the current employer ───
-  // Primary: headline rawCompany matches (most reliable — LinkedIn headline = current job)
-  // Fallback: headline has no company field (Format 3) but snippet shows current employment
+  // Strip trailing "@company" suffix from rawTitle (e.g. "CEO @Jobright.ai" → "CEO")
+  if (rawTitle) rawTitle = rawTitle.replace(/\s*@\S+$/, "").trim() || null;
+
+  // ── Company must match in the headline (current employer) ───────────────────
+  // LinkedIn headline always shows the current employer. If the parsed company
+  // doesn't match, the person works somewhere else — reject.
+  // For Format 3 with no separate title field, also accept snippet employment context.
   const headlineMatch = rawCompany ? fuzzyCompanyMatch(rawCompany.trim(), companyName) : false;
   const snippetCurrentMatch =
     !headlineMatch &&
+    !rawTitle && // only when Format 3 (no title parsed)
     companyInEmploymentContext(result.snippet, companyName) &&
     !looksLikeFormerEmployee(result.title, result.snippet, companyName);
 

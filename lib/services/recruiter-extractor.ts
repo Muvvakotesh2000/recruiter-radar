@@ -454,12 +454,15 @@ export function parseLinkedInResult(
   // Reject former employees — "Former Recruiter at Acme", "Previously at Acme", etc.
   if (looksLikeFormerEmployee(result.title, result.snippet, companyName)) return null;
 
-  // Verify company match — require employment context, not just any mention
+  // Verify company match
+  // The LinkedIn headline always shows the CURRENT employer. If we successfully
+  // parsed a company from the headline and it doesn't match the target, the person
+  // currently works somewhere else — reject immediately (most reliable former-employee signal).
+  // Only fall back to snippet-based check when no company was parsed from the headline.
   const companyToCheck = rawCompany ?? "";
   const titleCompanyMatch = companyToCheck ? fuzzyCompanyMatch(companyToCheck.trim(), companyName) : false;
-  const snippetEmploymentMatch = companyInEmploymentContext(result.snippet, companyName);
-  if (companyToCheck && !titleCompanyMatch && !snippetEmploymentMatch) return null;
-  if (!companyToCheck && !snippetEmploymentMatch) return null;
+  if (companyToCheck && !titleCompanyMatch) return null;
+  if (!companyToCheck && !companyInEmploymentContext(result.snippet, companyName)) return null;
 
   // Title classification
   const titleClass = classifyTitle((rawTitle ?? "").trim());
