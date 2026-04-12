@@ -339,20 +339,154 @@ export async function runGeneration(
       return { ...lead, email: null, email_type: "unknown" as const };
     });
 
+    // ── Phase 4.7: Management fallback ───────────────────────────────────────────
+    // If fewer than 3 recruiters found, broaden search to founders/leads/management.
+    let managementLeads: ParsedLead[] = [];
+
+    if (finalLeads.length <= 2) {
+      console.log(
+        `[Generation] Phase 4.7 — only ${finalLeads.length} recruiter lead(s) found; searching for founders/management`
+      );
+
+      const mgmtQueries = [
+        `site:linkedin.com/in "${input.company_name}" founder OR "co-founder" OR CEO OR CTO OR COO OR "head of" OR "vp of" OR president`,
+        `"${input.company_name}" founder OR "co-founder" OR CEO site:linkedin.com`,
+      ];
+
+      const mgmtSearches = await Promise.all(
+        mgmtQueries.map((q) =>
+          searchProvider
+            .search(q, 10)
+            .catch((err) => {
+              console.warn(`[Generation] Management query failed: "${q}" — ${err.message}`);
+              return null;
+            })
+        )
+      );
+
+      // Collect unique management results
+      const mgmtSeenUrls = new Set(seenUrls); // avoid duplicating earlier results
+      const mgmtResults: SearchResult[] = [];
+
+      for (const resp of mgmtSearches) {
+        if (!resp) continue;
+        for (const r of resp.results) {
+          if (!mgmtSeenUrls.has(r.url) && r.snippet.trim().length > 0) {
+            mgmtSeenUrls.add(r.url);
+            mgmtResults.push(r);
+          }
+        }
+      }
+
+      console.log(`[Generation] Phase 4.7 — ${mgmtResults.length} management results`);
+
+      // Filter: must mention the company (no recruiter keyword required)
+      const companyNorm = input.company_name.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const mgmtFiltered = mgmtResults.filter((r) => {
+        const text = `${r.title} ${r.snippet}`.toLowerCase();
+        const textNorm = text.replace(/[^a-z0-9\s]/g, "");
+        return (
+          text.includes(input.company_name.toLowerCase()) ||
+          textNorm.includes(companyNorm)
+        );
+      });
+
+      // Parse with standard extractor (management titles pass SECONDARY_HIRING_TERMS check)
+      const { parsed: mgmtParsed } = extractWithoutAI(mgmtFiltered, input.company_name);
+
+      // If non-AI parsing didn't catch them, use AI fallback on management results
+      let mgmtAiLeads: ParsedLead[] = [];
+      if (mgmtParsed.length === 0 && mgmtFiltered.length > 0 && aiProvider.extractContacts) {
+        try {
+          const mgmtAiResult = await aiProvider.extractContacts(
+            input,
+            mgmtFiltered.slice(0, MAX_AI_RESULTS),
+            hunterData ?? null
+          );
+          mgmtAiLeads = (mgmtAiResult.recruiters ?? []).map((r) => {
+            const lead: ParsedLead = {
+              full_name: r.full_name,
+              job_title: r.job_title ?? "Founder / Leadership",
+              company: input.company_name,
+              location: sanitiseLocation(r.location),
+              linkedin_url: r.linkedin_url ?? null,
+              email: r.email ?? null,
+              email_type: r.email_type ?? "unknown",
+              source: r.source,
+              confidence_level: "Medium",
+              score: 0,
+              outreach_message: r.outreach_message ?? "",
+            };
+            lead.score = scoreLead(lead, input);
+            return lead;
+          });
+          console.log(`[Generation] Phase 4.7 — AI found ${mgmtAiLeads.length} management contacts`);
+        } catch (err) {
+          console.warn("[Generation] Management AI fallback failed:", err);
+        }
+      }
+
+      // Score and generate outreach for non-AI parsed management leads
+      for (const lead of mgmtParsed) {
+        lead.score = scoreLead(lead, input);
+        lead.outreach_message = generateOutreachMessage(lead, input);
+      }
+
+      managementLeads = deduplicateLeads([...mgmtParsed, ...mgmtAiLeads]);
+      console.log(
+        `[Generation] Phase 4.7 — adding ${managementLeads.length} management contact(s) as fallback`
+      );
+    }
+
+    // Merge management fallback into final leads (after recruiter leads)
+    const allLeads = managementLeads.length > 0
+      ? deduplicateLeads([...finalLeads, ...managementLeads])
+      : finalLeads;
+
+    // Apply emails to management leads too
+    const finalAllLeads = allLeads.map((lead) => {
+      // Fix title: if it accidentally matches the job title, reset to generic
+      const titleLower = lead.job_title.toLowerCase().trim();
+      const jobTitleLower = input.job_title.toLowerCase().trim();
+      if (titleLower === jobTitleLower || titleLower.length === 0) {
+        lead = { ...lead, job_title: "Recruiter / Talent Acquisition" };
+      }
+
+      if (lead.email && lead.email_type === "verified") return lead;
+
+      const { first, last } = splitName(lead.full_name);
+      if (!first || !last) return lead;
+
+      const hunterEmail = hunterEmailMap.get(`${first.toLowerCase()} ${last.toLowerCase()}`);
+      if (hunterEmail) {
+        return { ...lead, email: hunterEmail, email_type: "verified" as const };
+      }
+
+      if (bestPattern) {
+        const estimated = applyPattern(bestPattern, first, last, companyDomain);
+        if (estimated) {
+          return { ...lead, email: estimated, email_type: "estimated" as const };
+        }
+      }
+
+      return { ...lead, email: null, email_type: "unknown" as const };
+    });
+
     rawResponse = JSON.stringify({
       queries: queriesUsed,
       result_count: filteredResults.length,
       ai_used: shouldUseAI,
       leads_parsed: dedupedParsed.length,
       leads_from_ai: aiLeads.length,
-      total: finalLeads.length,
+      management_fallback: managementLeads.length,
+      total: finalAllLeads.length,
     });
 
     // ── Phase 5: Persist to database ─────────────────────────────────────────────
     await db.from("recruiter_leads").delete().eq("job_id", jobId);
 
-    if (finalLeads.length > 0) {
-      const leadsToInsert = finalLeads.map((r) => ({
+    if (finalAllLeads.length > 0) {
+      const leadsToInsert = finalAllLeads.map((r) => ({
         job_id: jobId,
         user_id: userId,
         full_name: r.full_name,
@@ -393,9 +527,9 @@ export async function runGeneration(
       .update({ status: "completed", raw_response: rawResponse })
       .eq("id", generationRunId);
 
-    console.log(`[Generation] Done — ${finalLeads.length} leads saved`);
+    console.log(`[Generation] Done — ${finalAllLeads.length} leads saved`);
 
-    return { recruiterCount: finalLeads.length, generationRunId, queriesUsed };
+    return { recruiterCount: finalAllLeads.length, generationRunId, queriesUsed };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     console.error("[Generation] Error:", errorMessage);
