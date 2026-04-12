@@ -296,8 +296,11 @@ const LOCATION_PATTERNS = [
   new RegExp(`\\b(${Object.values(STATE_ABBR).join("|")})\\b`),
 ];
 
-const JUNK_LOCATION_WORDS = /^(the|a|an|and|or|at|in|is|are|view|see|linkedin|profile|connect|join|follow)\b/i;
-const ROLE_WORDS = /\b(recruiter|talent|manager|engineer|partner|director|coordinator|sourcer|specialist|analyst|developer|designer)\b/i;
+const JUNK_LOCATION_WORDS = /^(the|a|an|and|or|at|in|is|are|view|see|linkedin|profile|connect|join|follow|experience|education|skills|summary|about|company|industry|website|sector|employees|founded|type)\b/i;
+const ROLE_WORDS = /\b(recruiter|talent|manager|engineer|partner|director|coordinator|sourcer|specialist|analyst|developer|designer|consultant|advisor|lead|head|vp|president|officer|intern|associate)\b/i;
+
+// A segment is location-like if it contains a comma, geographic keyword, or known patterns
+const LOCATION_LIKE = /,|Area\b|Region\b|Remote\b|District\b|Province\b|County\b|Bay\b|Valley\b|Metro\b|Greater\b|United States|United Kingdom|Canada|Germany|France|Australia|India|Singapore|Netherlands/i;
 
 /**
  * Extract the profile's actual location from a LinkedIn snippet.
@@ -320,20 +323,22 @@ export function extractLinkedInLocation(snippet: string): string | null {
   const segments = normalised.split("§").map(s => s.trim());
 
   for (const seg of segments) {
-    if (seg.length < 3 || seg.length > 70) continue;
+    if (seg.length < 3 || seg.length > 60) continue;
+    if (seg.includes(":")) continue;                  // "Experience: Cisco", "Education: ..."
     if (JUNK_LOCATION_WORDS.test(seg)) continue;
     if (ROLE_WORDS.test(seg)) continue;              // job title segment
     if (/\d{3,}/.test(seg)) continue;               // "500+ connections", zip codes
     if (/\bat\b|\bfor\b|\bwith\b/i.test(seg)) continue; // "Recruiter at Dell"
     if (/linkedin|profile|connection|follow|view\b/i.test(seg)) continue;
-    // Must start with capital — looks like a place name
-    if (/^[A-Z][a-zA-Z]/.test(seg)) return seg;
+    if (!/^[A-Z]/.test(seg)) continue;              // must start with capital
+    // Must look like a location — contain comma, geographic keyword, or "Remote"
+    if (!LOCATION_LIKE.test(seg)) continue;
+    return seg;
   }
   return null;
 }
 
 export function extractLocation(text: string): string | null {
-  // ── General patterns ──────────────────────────────────────────────────────────
   for (const rx of LOCATION_PATTERNS) {
     const m = text.match(rx);
     if (m) {
@@ -341,7 +346,9 @@ export function extractLocation(text: string): string | null {
       if (
         loc.length >= 3 &&
         loc.length <= 60 &&
-        !JUNK_LOCATION_WORDS.test(loc)
+        !loc.includes(":") &&
+        !JUNK_LOCATION_WORDS.test(loc) &&
+        !ROLE_WORDS.test(loc)
       ) {
         return loc;
       }
@@ -431,7 +438,7 @@ export function parseLinkedInResult(
   // Do NOT fall back to general pattern matching on the snippet body —
   // the snippet body often contains the job's location (from the search query)
   // which would overwrite the recruiter's actual location.
-  const location = extractLinkedInLocation(result.snippet);
+  const location = sanitiseLocation(extractLinkedInLocation(result.snippet));
 
   const emailMatch = result.snippet.match(/\b[\w.+%-]{2,30}@[\w.-]+\.[a-z]{2,}\b/i);
   const email = emailMatch?.[0]?.toLowerCase() ?? null;
@@ -486,7 +493,7 @@ export function parseContactDBResult(
   const titleClass = classifyTitle(jobTitle);
   if (titleClass === "noise") return null;
 
-  const location = extractLocation(result.snippet);
+  const location = sanitiseLocation(extractLocation(result.snippet));
   const emailMatch = result.snippet.match(/\b[\w.+%-]{2,30}@[\w.-]+\.[a-z]{2,}\b/i);
   const email = emailMatch?.[0]?.toLowerCase() ?? null;
 
@@ -654,6 +661,24 @@ export function scoreLead(lead: ParsedLead, input: RecruiterSearchInput): number
   if (lead.email_type === "verified") score += 3;
 
   return score;
+}
+
+// ─── Location sanitiser ────────────────────────────────────────────────────────
+
+/**
+ * Final guard: reject anything that doesn't look like a real location.
+ * Applied to both AI-returned and extracted locations before storage.
+ */
+export function sanitiseLocation(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const loc = raw.trim();
+  if (loc.length < 3 || loc.length > 60) return null;
+  if (loc.includes(":")) return null;               // "Experience: Cisco"
+  if (JUNK_LOCATION_WORDS.test(loc)) return null;
+  if (ROLE_WORDS.test(loc)) return null;
+  if (/\d{4,}/.test(loc)) return null;              // year or zip code
+  if (!LOCATION_LIKE.test(loc) && !/^[A-Z][a-z]/.test(loc)) return null;
+  return loc;
 }
 
 // ─── Template outreach message ────────────────────────────────────────────────

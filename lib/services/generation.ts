@@ -21,6 +21,7 @@ import {
   deduplicateLeads,
   scoreLead,
   generateOutreachMessage,
+  sanitiseLocation,
   type ParsedLead,
 } from "@/lib/services/recruiter-extractor";
 import type { RecruiterSearchInput } from "@/types/ai";
@@ -245,7 +246,7 @@ export async function runGeneration(
             full_name: r.full_name,
             job_title: r.job_title ?? "Recruiter / Talent Acquisition",
             company: input.company_name,
-            location: r.location ?? null,
+            location: sanitiseLocation(r.location),
             linkedin_url: r.linkedin_url ?? null,
             email: r.email ?? null,
             email_type: r.email_type ?? "unknown",
