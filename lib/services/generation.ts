@@ -519,7 +519,7 @@ export async function runGeneration(
 
 // ─── Management lead parser ────────────────────────────────────────────────────
 
-const MGMT_TITLE_RE = /\b(founder|co-?founder|chief executive|ceo|chief technology|cto|chief operating|coo|chief product|cpo|chief people|president|vice president|\bvp\b|head of|director of|director|general manager|managing director|\blead\b|team lead)\b/i;
+const MGMT_TITLE_RE = /\b(founder|co-?founder|chief executive officer|chief executive|ceo|chief technology officer|chief technology|cto|chief operating officer|chief operating|coo|chief product officer|chief product|cpo|chief people officer|chief people|president|vice president|vp of|head of|director of|general manager|managing director|team lead)\b/i;
 
 /**
  * Parse a LinkedIn search result specifically for founder/leadership contacts.
@@ -575,13 +575,15 @@ function parseMgmtLinkedInResult(
   // that merely mentions the target company elsewhere in the snippet.
   if (!rawCompany || !fuzzyCompanyMatch(rawCompany.trim(), companyName)) return null;
 
-  // ── Management title must be present ────────────────────────────────────────
-  // Prefer title from headline; fall back to snippet only if company headline matched.
-  const titleSource = rawTitle ?? result.snippet;
-  const titleMatch = titleSource.match(MGMT_TITLE_RE);
-  if (!titleMatch) return null;
+  // ── Management title must be present in the headline ────────────────────────
+  // Only accept the title from rawTitle (the parsed headline field).
+  // Do NOT pull from the snippet — snippet text is unreliable and causes bare
+  // keywords like "president" to be assigned as someone's title incorrectly.
+  // If no rawTitle was parsed (Format 3), skip this result entirely rather than guess.
+  if (!rawTitle) return null;
+  if (!MGMT_TITLE_RE.test(rawTitle)) return null;
 
-  const jobTitle = (rawTitle ?? titleMatch[0]).trim();
+  const jobTitle = rawTitle.trim();
 
   const location = sanitiseLocation(extractLinkedInLocation(result.snippet));
   const emailMatch = result.snippet.match(/\b[\w.+%-]{2,30}@[\w.-]+\.[a-z]{2,}\b/i);
