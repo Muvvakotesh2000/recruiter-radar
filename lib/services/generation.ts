@@ -25,6 +25,7 @@ import {
   extractLinkedInLocation,
   looksLikeFormerEmployee,
   fuzzyCompanyMatch,
+  companyInEmploymentContext,
   type ParsedLead,
 } from "@/lib/services/recruiter-extractor";
 import type { RecruiterSearchInput } from "@/types/ai";
@@ -352,8 +353,10 @@ export async function runGeneration(
       );
 
       const mgmtQueries = [
-        `site:linkedin.com/in "${input.company_name}" founder OR "co-founder" OR CEO OR CTO OR COO OR "head of" OR "vp of" OR president`,
-        `"${input.company_name}" founder OR "co-founder" OR CEO site:linkedin.com`,
+        // C-suite and founders
+        `site:linkedin.com/in "${input.company_name}" "founder" OR "co-founder" OR "CEO" OR "CTO" OR "COO" OR "president"`,
+        // VP / Head / Director level
+        `site:linkedin.com/in "${input.company_name}" "head of" OR "vp of" OR "vice president" OR "director of" OR "general manager"`,
       ];
 
       const mgmtSearches = await Promise.all(
@@ -638,7 +641,6 @@ function parseMgmtLinkedInResult(
   if (looksLikeFormerEmployee(result.title, result.snippet, companyName)) return null;
 
   // ── Parse the LinkedIn headline (title tag) ──────────────────────────────────
-  // We try multiple known LinkedIn title formats to extract: name, role, company
   let rawName: string | null = null;
   let rawTitle: string | null = null;
   let rawCompany: string | null = null;
@@ -657,7 +659,7 @@ function parseMgmtLinkedInResult(
     if (m2) { rawName = m2[1]; rawTitle = m2[2]; rawCompany = m2[3]; }
   }
 
-  // Format 3: "Name - Company | LinkedIn" (no title in headline)
+  // Format 3: "Name - Company | LinkedIn" (no title in headline — rawTitle stays null)
   if (!rawName) {
     const m3 = result.title.match(
       /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*([^|·•]{3,55}?)\s*\|/
@@ -667,13 +669,18 @@ function parseMgmtLinkedInResult(
 
   if (!rawName) return null;
 
-  // ── Company must match the target in the headline ───────────────────────────
-  if (!rawCompany || !fuzzyCompanyMatch(rawCompany.trim(), companyName)) return null;
+  // ── Company must match in the headline OR be clearly the current employer ───
+  // Primary: headline rawCompany matches (most reliable — LinkedIn headline = current job)
+  // Fallback: headline has no company field (Format 3) but snippet shows current employment
+  const headlineMatch = rawCompany ? fuzzyCompanyMatch(rawCompany.trim(), companyName) : false;
+  const snippetCurrentMatch =
+    !headlineMatch &&
+    companyInEmploymentContext(result.snippet, companyName) &&
+    !looksLikeFormerEmployee(result.title, result.snippet, companyName);
 
-  // ── Title: use headline title if found, otherwise "Management" ──────────────
-  // Trust the search queries to have targeted management/leadership; if the
-  // headline doesn't expose a title (Format 3), label them "Management" rather
-  // than skipping them.
+  if (!headlineMatch && !snippetCurrentMatch) return null;
+
+  // ── Title: use parsed headline title, otherwise "Management" ─────────────────
   const jobTitle = rawTitle?.trim() || "Management";
 
   const location = sanitiseLocation(extractLinkedInLocation(result.snippet));

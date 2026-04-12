@@ -113,11 +113,13 @@ const CERT_WORDS = /\b(certified|certification|certificate|credential|badge|cour
 /** Signals that the person is a *former* employee, not a current one */
 const FORMER_WORDS = /\b(former|formerly|ex[-\s]|previously|past\s+\w+\s+at|alumni|alum|left\s+|no\s+longer)\b/i;
 
+/** Past year range — e.g. "2019 - 2022", "Mar 2020 – Dec 2024". End year must be < current year. */
+const PAST_YEAR_RE = /\b(20\d{2})\s*[-–]\s*(201[0-9]|202[0-4])\b/;
+
 /**
  * Returns true if the title or snippet indicates the person used to work
- * at this company but doesn't currently — e.g. "Former Recruiter at Acme".
- * We check a window around the company name so we don't reject someone
- * who e.g. hired a former employee.
+ * at this company but doesn't currently — e.g. "Former Recruiter at Acme"
+ * or a date range ending before the current year near the company name.
  */
 export function looksLikeFormerEmployee(title: string, snippet: string, companyName: string): boolean {
   const combined = `${title} ${snippet}`.toLowerCase();
@@ -127,10 +129,13 @@ export function looksLikeFormerEmployee(title: string, snippet: string, companyN
   // Check title-level "former" — covers "Former Senior Recruiter at Acme | LinkedIn"
   if (FORMER_WORDS.test(title)) return true;
 
-  // Check within ±60 chars of the company name in the combined text
+  // Check within ±80 chars of the company name in the combined text
   if (idx !== -1) {
-    const window = combined.slice(Math.max(0, idx - 60), idx + cn.length + 60);
+    const window = combined.slice(Math.max(0, idx - 80), idx + cn.length + 80);
     if (FORMER_WORDS.test(window)) return true;
+    // Date range ending in a past year near the company → past employment
+    // but only if "present" does NOT appear in the same window (e.g. "2022 - Present")
+    if (PAST_YEAR_RE.test(window) && !/\bpresent\b/i.test(window)) return true;
   }
 
   return false;
@@ -142,7 +147,7 @@ export function looksLikeFormerEmployee(title: string, snippet: string, companyN
  * name matches — e.g. "Google Certified" or "AWS Certificate" should NOT
  * count as the person working at Google / AWS.
  */
-function companyInEmploymentContext(snippet: string, companyName: string): boolean {
+export function companyInEmploymentContext(snippet: string, companyName: string): boolean {
   const s = snippet.toLowerCase();
   const cn = companyName.toLowerCase();
   const idx = s.indexOf(cn);
