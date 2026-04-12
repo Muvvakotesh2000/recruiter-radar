@@ -576,14 +576,14 @@ function parseAnyCurrentEmployeeResult(
 
   // Format 1: "Name - Title at Company | LinkedIn"
   const m1 = result.title.match(
-    /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,80}?)\s+(?:at|@)\s+([^|,·•]{3,55}?)(?:,\s*[^|]+?)?\s*[|·]/
+    /^([A-Z][A-Za-z'()\-.\s]{1,50}?)\s*[–\-]\s*(.{4,80}?)\s+(?:at|@)\s+([^|,·•]{3,55}?)(?:,\s*[^|]+?)?\s*[|·]/
   );
   if (m1) { rawName = m1[1]; rawTitle = m1[2]; rawCompany = m1[3]; }
 
   // Format 2: "Name - Title · Company | LinkedIn"
   if (!rawName) {
     const m2 = result.title.match(
-      /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,80}?)\s*[·•]\s*([^|,]{3,55}?)\s*\|/
+      /^([A-Z][A-Za-z'()\-.\s]{1,50}?)\s*[–\-]\s*(.{4,80}?)\s*[·•]\s*([^|,]{3,55}?)\s*\|/
     );
     if (m2) { rawName = m2[1]; rawTitle = m2[2]; rawCompany = m2[3]; }
   }
@@ -591,7 +591,7 @@ function parseAnyCurrentEmployeeResult(
   // Format 3: "Name - Company | LinkedIn"
   if (!rawName) {
     const m3 = result.title.match(
-      /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*([^|·•]{3,55}?)\s*\|/
+      /^([A-Z][A-Za-z'()\-.\s]{1,50}?)\s*[–\-]\s*([^|·•]{3,55}?)\s*\|/
     );
     if (m3) { rawName = m3[1]; rawCompany = m3[2]; }
   }
@@ -652,14 +652,14 @@ function parseMgmtLinkedInResult(
 
   // Format 1: "Name - Title at/@ Company | LinkedIn" (space-@ or word-at)
   const m1 = result.title.match(
-    /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,80}?)\s+(?:at|@)\s+([^|,·•]{3,55}?)(?:,\s*[^|]+?)?\s*[|·]/
+    /^([A-Z][A-Za-z'()\-.\s]{1,50}?)\s*[–\-]\s*(.{4,80}?)\s+(?:at|@)\s+([^|,·•]{3,55}?)(?:,\s*[^|]+?)?\s*[|·]/
   );
   if (m1) { rawName = m1[1]; rawTitle = m1[2]; rawCompany = m1[3]; }
 
   // Format 1b: "Name - Title @Company | LinkedIn" (@ with no space before company)
   if (!rawName) {
     const m1b = result.title.match(
-      /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,60}?)\s*@([\w][\w.\-]{2,50}?)\s*[|·,]/
+      /^([A-Z][A-Za-z'()\-.\s]{1,50}?)\s*[–\-]\s*(.{4,60}?)\s*@([\w][\w.\-]{2,50}?)\s*[|·,]/
     );
     if (m1b) { rawName = m1b[1]; rawTitle = m1b[2]; rawCompany = m1b[3]; }
   }
@@ -667,7 +667,7 @@ function parseMgmtLinkedInResult(
   // Format 2: "Name - Title · Company | LinkedIn"
   if (!rawName) {
     const m2 = result.title.match(
-      /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,80}?)\s*[·•]\s*([^|,]{3,55}?)\s*\|/
+      /^([A-Z][A-Za-z'()\-.\s]{1,50}?)\s*[–\-]\s*(.{4,80}?)\s*[·•]\s*([^|,]{3,55}?)\s*\|/
     );
     if (m2) { rawName = m2[1]; rawTitle = m2[2]; rawCompany = m2[3]; }
   }
@@ -675,7 +675,7 @@ function parseMgmtLinkedInResult(
   // Format 3: "Name - Company | LinkedIn" (no title in headline — rawTitle stays null)
   if (!rawName) {
     const m3 = result.title.match(
-      /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*([^|·•]{3,55}?)\s*\|/
+      /^([A-Z][A-Za-z'()\-.\s]{1,50}?)\s*[–\-]\s*([^|·•]{3,55}?)\s*\|/
     );
     if (m3) { rawName = m3[1]; rawCompany = m3[2]; }
   }

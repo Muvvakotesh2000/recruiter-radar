@@ -353,6 +353,8 @@ export function extractLinkedInLocation(snippet: string): string | null {
   const normalised = snippet.replace(/[·•\u2027|]/g, "§");
   const segments = normalised.split("§").map(s => s.trim());
 
+  const candidates: string[] = [];
+
   for (const seg of segments) {
     if (seg.length < 3 || seg.length > 60) continue;
     if (seg.includes(":")) continue;                  // "Experience: Cisco", "Education: ..."
@@ -364,9 +366,17 @@ export function extractLinkedInLocation(snippet: string): string | null {
     if (!/^[A-Z]/.test(seg)) continue;              // must start with capital
     // Must look like a location — contain comma, geographic keyword, or "Remote"
     if (!LOCATION_LIKE.test(seg)) continue;
-    return seg;
+    candidates.push(seg);
   }
-  return null;
+
+  if (candidates.length === 0) return null;
+
+  // Prefer a candidate that contains a country name or a comma (city, country/state)
+  // — these are more specific and less likely to be a company's HQ region.
+  // Fallback: last candidate (personal info tends to appear later in Google snippets
+  // when company description pushes region text like "San Francisco Bay Area" to the front).
+  const specific = candidates.find(c => /,/.test(c));
+  return specific ?? candidates[candidates.length - 1];
 }
 
 export function extractLocation(text: string): string | null {
@@ -412,7 +422,7 @@ export function parseLinkedInResult(
   // Format 1: "Name - Title at Company | LinkedIn"  (standard)
   // Format 1b: "Name – Title at Company, City | LinkedIn"
   const m1 = result.title.match(
-    /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,80}?)\s+(?:at|@)\s+([^|,·•]{3,55}?)(?:,\s*[^|]+?)?\s*[|·]/
+    /^([A-Z][A-Za-z'()\-.\s]{1,50}?)\s*[–\-]\s*(.{4,80}?)\s+(?:at|@)\s+([^|,·•]{3,55}?)(?:,\s*[^|]+?)?\s*[|·]/
   );
   if (m1) {
     [, rawName, rawTitle, rawCompany] = m1;
@@ -421,7 +431,7 @@ export function parseLinkedInResult(
   // Format 2: "Name - Title · Company | LinkedIn"  (middle dot separator)
   if (!rawName) {
     const m2 = result.title.match(
-      /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,80}?)\s*[·•]\s*([^|,]{3,55}?)\s*\|/
+      /^([A-Z][A-Za-z'()\-.\s]{1,50}?)\s*[–\-]\s*(.{4,80}?)\s*[·•]\s*([^|,]{3,55}?)\s*\|/
     );
     if (m2) {
       [, rawName, rawTitle, rawCompany] = m2;
@@ -431,7 +441,7 @@ export function parseLinkedInResult(
   // Format 3: "Name - Company | LinkedIn"  (no title in heading — get title from snippet)
   if (!rawName) {
     const m3 = result.title.match(
-      /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*([^|·•]{3,55}?)\s*\|/
+      /^([A-Z][A-Za-z'()\-.\s]{1,50}?)\s*[–\-]\s*([^|·•]{3,55}?)\s*\|/
     );
     if (m3) {
       rawName = m3[1];
