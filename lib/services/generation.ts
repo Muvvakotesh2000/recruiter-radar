@@ -24,6 +24,7 @@ import {
   sanitiseLocation,
   extractLinkedInLocation,
   looksLikeFormerEmployee,
+  fuzzyCompanyMatch,
   type ParsedLead,
 } from "@/lib/services/recruiter-extractor";
 import type { RecruiterSearchInput } from "@/types/ai";
@@ -523,7 +524,10 @@ const MGMT_TITLE_RE = /\b(founder|co-?founder|chief executive|ceo|chief technolo
 /**
  * Parse a LinkedIn search result specifically for founder/leadership contacts.
  * Used only in the management fallback (Phase 4.7).
- * Does not require recruiter keywords — accepts any management title.
+ *
+ * Strict rule: the company name AND a management title must BOTH appear in the
+ * same parsed LinkedIn headline segment — not just anywhere in the page text.
+ * This prevents false positives where the title belongs to a different company.
  */
 function parseMgmtLinkedInResult(
   result: SearchResult,
@@ -532,57 +536,52 @@ function parseMgmtLinkedInResult(
 ): ParsedLead | null {
   if (!result.url.includes("linkedin.com/in/")) return null;
 
-  const text = `${result.title} ${result.snippet}`;
-
-  // Must mention the company
-  const companyNorm = companyName.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const textNorm = text.toLowerCase().replace(/[^a-z0-9\s]/g, "");
-  if (
-    !text.toLowerCase().includes(companyName.toLowerCase()) &&
-    !textNorm.includes(companyNorm)
-  ) return null;
-
-  // Must contain a management title somewhere
-  if (!MGMT_TITLE_RE.test(text)) return null;
-
-  // Reject former employees — "Former CEO at Acme", "Previously at Acme", etc.
+  // Reject former employees upfront
   if (looksLikeFormerEmployee(result.title, result.snippet, companyName)) return null;
 
-  // Extract name from title using same LinkedIn formats as main parser
+  // ── Parse the LinkedIn headline (title tag) ──────────────────────────────────
+  // We try multiple known LinkedIn title formats to extract: name, role, company
   let rawName: string | null = null;
   let rawTitle: string | null = null;
+  let rawCompany: string | null = null;
 
+  // Format 1: "Name - Title at Company | LinkedIn"
   const m1 = result.title.match(
-    /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,80}?)\s+(?:at|@)\s+[^|,·•]{3,55}?(?:,\s*[^|]+?)?\s*[|·]/
+    /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,80}?)\s+(?:at|@)\s+([^|,·•]{3,55}?)(?:,\s*[^|]+?)?\s*[|·]/
   );
-  if (m1) { rawName = m1[1]; rawTitle = m1[2]; }
+  if (m1) { rawName = m1[1]; rawTitle = m1[2]; rawCompany = m1[3]; }
 
+  // Format 2: "Name - Title · Company | LinkedIn"
   if (!rawName) {
     const m2 = result.title.match(
-      /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,80}?)\s*[·•]\s*[^|,]{3,55}?\s*\|/
+      /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*(.{4,80}?)\s*[·•]\s*([^|,]{3,55}?)\s*\|/
     );
-    if (m2) { rawName = m2[1]; rawTitle = m2[2]; }
+    if (m2) { rawName = m2[1]; rawTitle = m2[2]; rawCompany = m2[3]; }
   }
 
+  // Format 3: "Name - Company | LinkedIn" (no title in headline)
   if (!rawName) {
     const m3 = result.title.match(
-      /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*[^|·•]{3,55}?\s*\|/
+      /^([A-Z][A-Za-z'\-.\s]{1,40}?)\s*[–\-]\s*([^|·•]{3,55}?)\s*\|/
     );
-    if (m3) {
-      rawName = m3[1];
-      // Pull title from snippet
-      const sm = result.snippet.match(MGMT_TITLE_RE);
-      rawTitle = sm ? sm[0] : null;
-    }
+    if (m3) { rawName = m3[1]; rawCompany = m3[2]; }
   }
 
   if (!rawName) return null;
 
-  // If no title from heading, extract from snippet
-  if (!rawTitle) {
-    const sm = result.snippet.match(MGMT_TITLE_RE);
-    rawTitle = sm ? sm[0] : "Leadership";
-  }
+  // ── Company must match the target in the headline ───────────────────────────
+  // Require the company parsed from the headline to match.
+  // This ensures we're not matching "CEO at SomeOtherCompany" for an unrelated result
+  // that merely mentions the target company elsewhere in the snippet.
+  if (!rawCompany || !fuzzyCompanyMatch(rawCompany.trim(), companyName)) return null;
+
+  // ── Management title must be present ────────────────────────────────────────
+  // Prefer title from headline; fall back to snippet only if company headline matched.
+  const titleSource = rawTitle ?? result.snippet;
+  const titleMatch = titleSource.match(MGMT_TITLE_RE);
+  if (!titleMatch) return null;
+
+  const jobTitle = (rawTitle ?? titleMatch[0]).trim();
 
   const location = sanitiseLocation(extractLinkedInLocation(result.snippet));
   const emailMatch = result.snippet.match(/\b[\w.+%-]{2,30}@[\w.-]+\.[a-z]{2,}\b/i);
@@ -590,7 +589,7 @@ function parseMgmtLinkedInResult(
 
   return {
     full_name: rawName.trim(),
-    job_title: rawTitle.trim(),
+    job_title: jobTitle,
     company: companyName,
     location,
     linkedin_url: result.url,
