@@ -112,11 +112,12 @@ const CERT_WORDS = /\b(certified|certification|certificate|credential|badge|cour
 
 /**
  * Signals that a person is a *former* employee of a *specific company*.
- * Only checked within a window around the company name — never globally —
- * to avoid false positives like "Ex-Box Engineer" or "CMU Alumni" wrongly
- * flagging someone as a former employee of the target company.
+ * "former"/"ex-"/"previously" almost always appear BEFORE the company name
+ * (e.g. "Former Recruiter at Acme", "Previously at Acme").
+ * We do NOT include "alumni"/"alum" here — those are too often university
+ * references (e.g. "CMU Alumni") and would cause false rejections.
  */
-const FORMER_WORDS = /\b(former|formerly|ex[-\s]|previously|past\s+\w+\s+at|alumni|alum|left\s+|no\s+longer)\b/i;
+const FORMER_WORDS = /\b(former|formerly|ex[-\s]|previously|past\s+\w+\s+at|left\s+|no\s+longer)\b/i;
 
 /** Past year range — e.g. "2019 - 2022", "Mar 2020 – Dec 2024". End year must be < current year. */
 const PAST_YEAR_RE = /\b(20\d{2})\s*[-–]\s*(201[0-9]|202[0-4])\b/;
@@ -125,9 +126,14 @@ const PAST_YEAR_RE = /\b(20\d{2})\s*[-–]\s*(201[0-9]|202[0-4])\b/;
  * Returns true if the title or snippet indicates the person used to work
  * at THIS SPECIFIC COMPANY but no longer does.
  *
- * Checks only within a ±80-char window around the company name so that
- * phrases like "Ex-Box Engineer" or "CMU Alumni" don't incorrectly reject
- * someone who is a current employee of the target company.
+ * Only checks the 60 chars BEFORE the company name for explicit "former"
+ * signals, since "Former X at Acme" always puts the signal word before
+ * the company. Checking after the company causes false positives like
+ * "Acme ... CMU Alumni" or "Acme ... Ex-Google Engineer" rejecting
+ * current Acme employees.
+ *
+ * For date ranges (e.g. "Acme · 2019 - 2022"), checks ±60 chars around
+ * the company name since those appear on either side.
  */
 export function looksLikeFormerEmployee(title: string, snippet: string, companyName: string): boolean {
   const combined = `${title} ${snippet}`.toLowerCase();
@@ -136,14 +142,13 @@ export function looksLikeFormerEmployee(title: string, snippet: string, companyN
 
   if (idx === -1) return false;
 
-  // Only check within ±80 chars of the company name
-  const window = combined.slice(Math.max(0, idx - 80), idx + cn.length + 80);
+  // Check LEFT of company name for "former"/"previously"/"ex-" (60 chars before)
+  const leftWindow = combined.slice(Math.max(0, idx - 60), idx);
+  if (FORMER_WORDS.test(leftWindow)) return true;
 
-  if (FORMER_WORDS.test(window)) return true;
-
-  // Date range ending in a past year near the company → past employment
-  // but only if "present" does NOT appear in the same window (e.g. "2022 - Present")
-  if (PAST_YEAR_RE.test(window) && !/\bpresent\b/i.test(window)) return true;
+  // Check ±60 chars for past year ranges (date ranges can appear on either side)
+  const dateWindow = combined.slice(Math.max(0, idx - 60), idx + cn.length + 60);
+  if (PAST_YEAR_RE.test(dateWindow) && !/\bpresent\b/i.test(dateWindow)) return true;
 
   return false;
 }
