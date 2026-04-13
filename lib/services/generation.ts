@@ -788,9 +788,12 @@ function buildDynamicQueries(input: RecruiterSearchInput): SearchQuery[] {
   const nearbyTerms = [...locationTiers.tier1, ...locationTiers.tier2]
     .filter((term) => term && term.toLowerCase() !== locationStr.toLowerCase())
     .slice(0, 4);
-  const nearbyLocationQuery = nearbyTerms.length > 0
-    ? nearbyTerms.map((term) => `"${term}"`).join(" OR ")
-    : `"${state ?? locationStr}"`;
+  const localTerms = [locationStr, ...nearbyTerms].filter(Boolean).slice(0, 5);
+  const localLocationQuery = localTerms.map((term) => `"${term}"`).join(" OR ");
+  const stateTerms = locationTiers.tier2.length > 0
+    ? locationTiers.tier2
+    : ([state].filter(Boolean) as string[]);
+  const stateLocationQuery = stateTerms.map((term) => `"${term}"`).join(" OR ");
 
   // Determine the job function for role-aware queries
   const jobFunction = extractJobFunction(job_title);
@@ -800,30 +803,30 @@ function buildDynamicQueries(input: RecruiterSearchInput): SearchQuery[] {
 
   const queries: SearchQuery[] = [];
 
-  // Q1: City + "recruiter" — catches Recruiter, Senior Recruiter, Lead Recruiter, etc.
+  // Q1: local recruiter profiles using exact city plus nearby metro labels.
   queries.push({
-    query: `site:linkedin.com/in "${company_name}" ("recruiter" OR "talent acquisition" OR "technical recruiter") "${locationStr}"`,
+    query: `site:linkedin.com/in "${company_name}" ("recruiter" OR "talent acquisition" OR "technical recruiter" OR "sourcer") (${localLocationQuery})`,
     purpose: `LinkedIn recruiters in ${locationStr}`,
     platform: "linkedin",
   });
 
-  // Q2: nearby/metro recruiter coverage — catches people listed outside the exact city.
+  // Q2: broader hiring-team titles in local/nearby/state results.
   queries.push({
-    query: `site:linkedin.com/in "${company_name}" ("${roleRecruiterTerm}" OR "sourcer" OR "talent partner" OR "recruiting manager") (${nearbyLocationQuery})`,
+    query: `site:linkedin.com/in "${company_name}" ("${roleRecruiterTerm}" OR "talent partner" OR "recruiting coordinator" OR "recruiting manager" OR "human resources" OR "people operations") (${localLocationQuery}${stateLocationQuery ? ` OR ${stateLocationQuery}` : ""})`,
     purpose: `LinkedIn recruiters near ${locationStr}`,
     platform: "linkedin",
   });
 
   // Q3: management fallback candidates in the same location/nearby area.
   queries.push({
-    query: `site:linkedin.com/in "${company_name}" ("founder" OR "co-founder" OR "CEO" OR "CFO" OR "CTO" OR "COO" OR "head of" OR "director") ("${locationStr}" OR ${nearbyLocationQuery})`,
+    query: `site:linkedin.com/in "${company_name}" ("founder" OR "co-founder" OR "CEO" OR "CFO" OR "CTO" OR "COO" OR "head of" OR "director") (${localLocationQuery}${stateLocationQuery ? ` OR ${stateLocationQuery}` : ""})`,
     purpose: `LinkedIn leadership near ${locationStr}`,
     platform: "linkedin",
   });
 
   // Q4: current employees in the same location/nearby area for last-resort fallback.
   queries.push({
-    query: `site:linkedin.com/in "${company_name}" ("${locationStr}" OR ${nearbyLocationQuery}) -"jobs" -"careers"`,
+    query: `site:linkedin.com/in "${company_name}" (${localLocationQuery}${stateLocationQuery ? ` OR ${stateLocationQuery}` : ""}) -"jobs" -"careers"`,
     purpose: `LinkedIn current employees near ${locationStr}`,
     platform: "linkedin",
   });

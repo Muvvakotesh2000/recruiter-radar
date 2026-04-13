@@ -37,6 +37,7 @@ import {
   copyToClipboard,
 } from "@/lib/utils";
 import { extractCompanyDomain } from "@/lib/services/hunter";
+import { buildLocationTiers, locationTierScore } from "@/lib/services/recruiter-extractor";
 
 interface LastRunInfo {
   id: string;
@@ -118,82 +119,16 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
   const status = getStatusColor(job.status);
   const CONFIDENCE_ORDER: Record<string, number> = { High: 0, Medium: 1, Low: 2 };
 
-  // Tiered location sort: exact city (0) > metro/regional (1) > same state (2) > different (3) > unknown (4)
-  const STATE_ABBR_UI: Record<string, string> = {
-    AL:"alabama",AK:"alaska",AZ:"arizona",AR:"arkansas",CA:"california",CO:"colorado",
-    CT:"connecticut",DE:"delaware",FL:"florida",GA:"georgia",HI:"hawaii",ID:"idaho",
-    IL:"illinois",IN:"indiana",IA:"iowa",KS:"kansas",KY:"kentucky",LA:"louisiana",
-    ME:"maine",MD:"maryland",MA:"massachusetts",MI:"michigan",MN:"minnesota",
-    MS:"mississippi",MO:"missouri",MT:"montana",NE:"nebraska",NV:"nevada",
-    NH:"new hampshire",NJ:"new jersey",NM:"new mexico",NY:"new york",NC:"north carolina",
-    ND:"north dakota",OH:"ohio",OK:"oklahoma",OR:"oregon",PA:"pennsylvania",
-    RI:"rhode island",SC:"south carolina",SD:"south dakota",TN:"tennessee",TX:"texas",
-    UT:"utah",VT:"vermont",VA:"virginia",WA:"washington",WV:"west virginia",
-    WI:"wisconsin",WY:"wyoming",DC:"washington dc",
-  };
-  const METRO_ALIASES_UI: Record<string, string[]> = {
-    "san francisco":["bay area","sf bay area","silicon valley","greater san francisco","sf","east bay","south bay","san jose","oakland"],
-    "san jose":["bay area","sf bay area","silicon valley","south bay"],
-    "new york":["nyc","new york city","greater new york","tri-state area","brooklyn","queens","manhattan","new jersey","nj"],
-    "los angeles":["la","greater los angeles","socal","southern california","long beach","orange county","oc","santa monica"],
-    "seattle":["greater seattle","puget sound","bellevue","redmond","kirkland"],
-    "chicago":["greater chicago","chicagoland"],
-    "boston":["greater boston","cambridge ma","cambridge","somerville","waltham"],
-    "austin":["greater austin","round rock","cedar park","pflugerville","austin metro"],
-    "dallas":["dfw","dallas fort worth","greater dallas","fort worth","plano","frisco","dallas-fort worth"],
-    "houston":["greater houston","the woodlands","sugar land"],
-    "denver":["greater denver","metro denver","boulder","aurora"],
-    "miami":["greater miami","south florida","fort lauderdale","boca raton"],
-    "atlanta":["greater atlanta","metro atlanta","alpharetta"],
-    "washington":["dc","dmv","washington dc","nova","northern virginia","arlington va","bethesda"],
-    "philadelphia":["greater philadelphia","philly"],
-    "phoenix":["greater phoenix","scottsdale","tempe","chandler","mesa"],
-    "minneapolis":["twin cities","saint paul","st paul","minneapolis-st paul"],
-    "raleigh":["research triangle","triangle","rtp","durham","chapel hill","cary"],
-    "tampa":["greater tampa","tampa bay","st petersburg"],
-  };
-
-  function buildUILocationTiers(location: string) {
-    const tier0: string[] = [];
-    const tier1: string[] = [];
-    const tier2: string[] = [];
-    const add0 = (v: string) => { if (!tier0.includes(v)) tier0.push(v); };
-    const add1 = (v: string) => { if (!tier1.includes(v)) tier1.push(v); };
-    const add2 = (v: string) => { if (!tier2.includes(v)) tier2.push(v); };
-    const parts = location.toLowerCase().split(/[\/,;]|\band\b/i).map(p => p.trim()).filter(Boolean);
-    for (const part of parts) {
-      add0(part);
-      const words = part.split(/\s+/);
-      add0(words[0]);
-      const lastWord = words[words.length - 1].toUpperCase();
-      if (STATE_ABBR_UI[lastWord]) { add2(STATE_ABBR_UI[lastWord]); add2(lastWord.toLowerCase()); }
-      for (const [abbr, full] of Object.entries(STATE_ABBR_UI)) {
-        if (part.includes(full)) { add2(full); add2(abbr.toLowerCase()); }
-      }
-      for (const [city, aliases] of Object.entries(METRO_ALIASES_UI)) {
-        if (words[0].includes(city) || city.includes(words[0]) || part.includes(city)) {
-          aliases.forEach(a => add1(a)); add1(city);
-        }
-        if (aliases.some(a => a === part || part.includes(a))) {
-          add0(city); aliases.forEach(a => add1(a));
-        }
-      }
-    }
-    return { tier0, tier1, tier2 };
-  }
-
-  function isExactCityMatch(leadLocation: string | null): boolean {
-    if (!leadLocation) return false;
-    const ll = leadLocation.toLowerCase();
-    const llCity = ll.split(",")[0].trim();
-    const tiers = buildUILocationTiers(job.location ?? "");
-    return tiers.tier0.some(t => ll.includes(t) || t.includes(llCity));
+  const locationTiers = buildLocationTiers(job.location ?? "");
+  function locationRank(leadLocation: string | null): number {
+    if (!leadLocation) return 4;
+    return locationTierScore(leadLocation, locationTiers);
   }
 
   const leads = (job.recruiter_leads ?? []).slice().sort((a, b) => {
-    const aExact = isExactCityMatch(a.location) ? 0 : 1;
-    const bExact = isExactCityMatch(b.location) ? 0 : 1;
-    if (aExact !== bExact) return aExact - bExact;
+    const aLocationRank = locationRank(a.location);
+    const bLocationRank = locationRank(b.location);
+    if (aLocationRank !== bLocationRank) return aLocationRank - bLocationRank;
     return (CONFIDENCE_ORDER[a.confidence_level] ?? 3) - (CONFIDENCE_ORDER[b.confidence_level] ?? 3);
   });
   const emailLeads = leads.filter((l) => l.email);
