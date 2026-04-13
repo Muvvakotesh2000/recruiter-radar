@@ -208,20 +208,31 @@ export async function runGeneration(
     let emailPatternFromAI: string | null = null;
     let hiringTeamNotes: string | null = null;
 
-    // Trigger AI only when non-AI parsing didn't find enough high-confidence leads.
-    // We do NOT trigger on uncertainCases alone — there are almost always some
-    // LinkedIn profiles that fail to parse (wrong format, not a recruiter, etc.),
-    // so that condition fired on nearly every search regardless of result quality.
+    // Collect high-value unparseable results — we know these are real people
+    const uncertainCases = unparsedResults.filter(
+      (r) =>
+        r.url.includes("linkedin.com/in/") ||
+        r.url.includes("apollo.io") ||
+        r.url.includes("rocketreach.co")
+    );
+
+    // Trigger AI when:
+    //   1. We have uncertain cases (LinkedIn profiles we couldn't parse), OR
+    //   2. We don't have enough high-confidence leads from non-AI parsing
     const shouldUseAI =
       !!aiProvider.extractContacts &&
-      highConfidenceParsed.length < MIN_LEADS_WITHOUT_AI;
+      (uncertainCases.length > 0 || highConfidenceParsed.length < MIN_LEADS_WITHOUT_AI);
 
     if (shouldUseAI) {
-      const aiInput = filteredResults.slice(0, MAX_AI_RESULTS);
+      // Send uncertain cases first; if < 3, supplement with other filtered results
+      const aiInput =
+        uncertainCases.length >= 3
+          ? uncertainCases.slice(0, MAX_AI_RESULTS)
+          : filteredResults.slice(0, MAX_AI_RESULTS);
 
       console.log(
-        `[Generation] Phase 3.5 — AI on ${aiInput.length} results ` +
-        `(${highConfidenceParsed.length} High from non-AI, threshold=${MIN_LEADS_WITHOUT_AI})`
+        `[Generation] Phase 3.5 — AI on ${aiInput.length} uncertain results ` +
+        `(${uncertainCases.length} unparseable profiles, ${highConfidenceParsed.length} High from non-AI)`
       );
 
       try {
