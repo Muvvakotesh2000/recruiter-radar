@@ -110,7 +110,12 @@ export function fuzzyCompanyMatch(resultCompany: string, inputCompany: string): 
 /** Words that indicate a non-employment relationship with the company */
 const CERT_WORDS = /\b(certified|certification|certificate|credential|badge|course|training|bootcamp|program|exam|assessment|licensed|accredited|issued by|awarded by|completion)\b/i;
 
-/** Signals that the person is a *former* employee, not a current one */
+/**
+ * Signals that a person is a *former* employee of a *specific company*.
+ * Only checked within a window around the company name — never globally —
+ * to avoid false positives like "Ex-Box Engineer" or "CMU Alumni" wrongly
+ * flagging someone as a former employee of the target company.
+ */
 const FORMER_WORDS = /\b(former|formerly|ex[-\s]|previously|past\s+\w+\s+at|alumni|alum|left\s+|no\s+longer)\b/i;
 
 /** Past year range — e.g. "2019 - 2022", "Mar 2020 – Dec 2024". End year must be < current year. */
@@ -118,25 +123,27 @@ const PAST_YEAR_RE = /\b(20\d{2})\s*[-–]\s*(201[0-9]|202[0-4])\b/;
 
 /**
  * Returns true if the title or snippet indicates the person used to work
- * at this company but doesn't currently — e.g. "Former Recruiter at Acme"
- * or a date range ending before the current year near the company name.
+ * at THIS SPECIFIC COMPANY but no longer does.
+ *
+ * Checks only within a ±80-char window around the company name so that
+ * phrases like "Ex-Box Engineer" or "CMU Alumni" don't incorrectly reject
+ * someone who is a current employee of the target company.
  */
 export function looksLikeFormerEmployee(title: string, snippet: string, companyName: string): boolean {
   const combined = `${title} ${snippet}`.toLowerCase();
   const cn = companyName.toLowerCase();
   const idx = combined.indexOf(cn);
 
-  // Check title-level "former" — covers "Former Senior Recruiter at Acme | LinkedIn"
-  if (FORMER_WORDS.test(title)) return true;
+  if (idx === -1) return false;
 
-  // Check within ±80 chars of the company name in the combined text
-  if (idx !== -1) {
-    const window = combined.slice(Math.max(0, idx - 80), idx + cn.length + 80);
-    if (FORMER_WORDS.test(window)) return true;
-    // Date range ending in a past year near the company → past employment
-    // but only if "present" does NOT appear in the same window (e.g. "2022 - Present")
-    if (PAST_YEAR_RE.test(window) && !/\bpresent\b/i.test(window)) return true;
-  }
+  // Only check within ±80 chars of the company name
+  const window = combined.slice(Math.max(0, idx - 80), idx + cn.length + 80);
+
+  if (FORMER_WORDS.test(window)) return true;
+
+  // Date range ending in a past year near the company → past employment
+  // but only if "present" does NOT appear in the same window (e.g. "2022 - Present")
+  if (PAST_YEAR_RE.test(window) && !/\bpresent\b/i.test(window)) return true;
 
   return false;
 }
