@@ -28,6 +28,7 @@ import {
   companyInEmploymentContext,
   hasRecruiterSignal,
   buildLocationTiers,
+  locationTierScore,
   isLikelyPersonName,
   type ParsedLead,
 } from "@/lib/services/recruiter-extractor";
@@ -429,7 +430,7 @@ export async function runGeneration(
       : finalLeads;
 
     // Apply emails to management leads too
-    const finalAllLeads = allLeads.map((lead) => {
+    const finalAllLeads = prioritizeLocationMatches(allLeads.map((lead) => {
       // Fix title: if it accidentally matches the job title, reset to generic
       const titleLower = lead.job_title.toLowerCase().trim();
       const jobTitleLower = input.job_title.toLowerCase().trim();
@@ -455,7 +456,7 @@ export async function runGeneration(
       }
 
       return { ...lead, email: null, email_type: "unknown" as const };
-    });
+    }), input);
 
     rawResponse = JSON.stringify({
       queries: queriesUsed,
@@ -598,6 +599,29 @@ function parseAnyCurrentEmployeeResult(
     score: 0,
     outreach_message: "",
   };
+}
+
+function prioritizeLocationMatches(
+  leads: ParsedLead[],
+  input: RecruiterSearchInput
+): ParsedLead[] {
+  const isRemote = /^remote$/i.test(input.location.trim()) || /\bremote\b/i.test(input.location);
+  const sorted = [...leads].sort((a, b) => b.score - a.score);
+  if (isRemote) return sorted;
+
+  const tiers = buildLocationTiers(input.location);
+  const exactOrNearby = sorted.filter((lead) => locationTierScore(lead.location, tiers) <= 1);
+  const sameState = sorted.filter((lead) => locationTierScore(lead.location, tiers) === 2);
+
+  if (exactOrNearby.length > 0) {
+    return [...exactOrNearby, ...sameState];
+  }
+
+  if (sameState.length > 0) {
+    return sameState;
+  }
+
+  return sorted;
 }
 
 // ─── Management lead parser ────────────────────────────────────────────────────

@@ -256,7 +256,8 @@ const METRO_ALIASES: Record<string, string[]> = {
   "san francisco": ["bay area", "sf bay area", "silicon valley", "greater san francisco", "sf", "east bay", "south bay", "peninsula", "san jose", "oakland", "berkeley"],
   "san jose":      ["bay area", "sf bay area", "silicon valley", "greater san jose", "south bay"],
   "new york":      ["nyc", "new york city", "greater new york", "tri-state area", "metro new york", "brooklyn", "queens", "manhattan", "bronx", "new jersey", "nj"],
-  "los angeles":   ["la", "greater los angeles", "socal", "so cal", "southern california", "long beach", "pasadena", "orange county", "oc", "inland empire", "santa monica", "burbank"],
+  "los angeles":   ["la", "greater los angeles", "los angeles metropolitan area", "la metropolitan area", "socal", "so cal", "southern california", "long beach", "pasadena", "orange county", "oc", "inland empire", "santa monica", "burbank", "el segundo", "culver city", "manhattan beach", "torrance"],
+  "el segundo":    ["los angeles", "greater los angeles", "los angeles metropolitan area", "la metropolitan area", "socal", "so cal", "southern california", "santa monica", "culver city", "manhattan beach", "torrance"],
   "seattle":       ["greater seattle", "puget sound", "bellevue", "redmond", "kirkland", "eastside"],
   "chicago":       ["greater chicago", "chicagoland", "chicagoland area", "evanston", "naperville"],
   "boston":        ["greater boston", "metro boston", "cambridge ma", "cambridge", "somerville", "waltham", "quincy"],
@@ -312,7 +313,7 @@ export function buildLocationTiers(location: string): {
     add0(part);
     const words = part.split(/\s+/);
     const cityWord = words[0];
-    add0(cityWord);
+    if (cityWord.length > 2) add0(cityWord);
 
     // State abbreviation → full name
     const stateAbbr = words[words.length - 1].toUpperCase();
@@ -331,7 +332,7 @@ export function buildLocationTiers(location: string): {
 
     // Tier 1: metro aliases for this city
     for (const [metroCity, aliases] of Object.entries(METRO_ALIASES)) {
-      if (cityWord.includes(metroCity) || metroCity.includes(cityWord) || part.includes(metroCity)) {
+      if (part.includes(metroCity) || (cityWord.length > 2 && (cityWord.includes(metroCity) || metroCity.includes(cityWord)))) {
         aliases.forEach((a) => add1(a.toLowerCase()));
         add1(metroCity.toLowerCase());
       }
