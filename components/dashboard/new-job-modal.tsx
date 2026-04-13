@@ -349,7 +349,7 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
                           />
                           <span className="flex items-center gap-1 text-xs text-muted-foreground group-hover:text-foreground transition-colors">
                             <Globe className="w-3 h-3" />
-                            Remote
+                            No location filter
                           </span>
                         </label>
                       </div>
@@ -371,7 +371,7 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
                               error={errors.location?.message}
                             />
                             <p className="text-xs text-muted-foreground mt-1.5">
-                              Separate multiple locations with <code className="text-brand-400">/</code> or comma.
+                              We prioritize this location first, then nearby metro/state results.
                             </p>
                           </motion.div>
                         ) : (

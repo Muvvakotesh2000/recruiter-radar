@@ -27,6 +27,8 @@ import {
   fuzzyCompanyMatch,
   companyInEmploymentContext,
   hasRecruiterSignal,
+  buildLocationTiers,
+  isLikelyPersonName,
   type ParsedLead,
 } from "@/lib/services/recruiter-extractor";
 import type { RecruiterSearchInput } from "@/types/ai";
@@ -65,7 +67,7 @@ const MIN_LEADS_WITHOUT_AI = 3;
  * Sorted by signal quality before slicing.
  */
 const MAX_AI_RESULTS = 25;
-const ENABLE_BROAD_EMPLOYEE_FALLBACK = false;
+const ENABLE_BROAD_EMPLOYEE_FALLBACK = true;
 
 export async function runGeneration(
   options: GenerationOptions
@@ -392,42 +394,33 @@ export async function runGeneration(
       }
 
       managementLeads = deduplicateLeads(mgmtParsed);
+      managementLeads.sort((a, b) => b.score - a.score);
       console.log(
         `[Generation] Phase 4.7 — adding ${managementLeads.length} management contact(s) as fallback`
       );
     }
 
     // ── Phase 4.8: Broad employee fallback ───────────────────────────────────────
-    // Disabled by default: returning no leads is better than returning random employees
-    // or company pages, and this keeps Serper usage fixed at MAX_QUERIES.
+    // Last resort only. Reuses already-paid search results to keep Serper usage fixed.
     let broadEmployeeLeads: ParsedLead[] = [];
 
     if (ENABLE_BROAD_EMPLOYEE_FALLBACK && finalLeads.length <= 2 && managementLeads.length === 0) {
-      console.log("[Generation] Phase 4.8 — no recruiters or management found; searching for any current employee");
+      console.log("[Generation] Phase 4.8 — no management found; checking existing results for current employees");
 
-      const broadQuery = `site:linkedin.com/in "${input.company_name}"`;
-      const broadResults = await searchProvider
-        .search(broadQuery, 15)
-        .catch((err) => {
-          console.warn(`[Generation] Broad employee query failed: ${err.message}`);
-          return null;
-        });
-
-      if (broadResults) {
-        const broadSeenUrls = new Set<string>(); // fresh dedup — same reason as Phase 4.7
-        for (const r of broadResults.results) {
-          if (broadSeenUrls.has(r.url) || !r.snippet.trim()) continue;
-          broadSeenUrls.add(r.url);
-          const lead = parseAnyCurrentEmployeeResult(r, input.company_name);
-          if (lead) {
-            lead.score = scoreLead(lead, input);
-            lead.outreach_message = generateOutreachMessage(lead, input);
-            broadEmployeeLeads.push(lead);
-          }
+      const broadSeenUrls = new Set<string>();
+      for (const r of rawResults) {
+        if (broadSeenUrls.has(r.url) || !r.snippet.trim()) continue;
+        broadSeenUrls.add(r.url);
+        const lead = parseAnyCurrentEmployeeResult(r, input.company_name);
+        if (lead) {
+          lead.score = scoreLead(lead, input);
+          lead.outreach_message = generateOutreachMessage(lead, input);
+          broadEmployeeLeads.push(lead);
         }
-        broadEmployeeLeads = deduplicateLeads(broadEmployeeLeads);
-        console.log(`[Generation] Phase 4.8 — found ${broadEmployeeLeads.length} current employee(s)`);
       }
+      broadEmployeeLeads = deduplicateLeads(broadEmployeeLeads);
+      broadEmployeeLeads.sort((a, b) => b.score - a.score);
+      console.log(`[Generation] Phase 4.8 — found ${broadEmployeeLeads.length} current employee(s)`);
     }
 
     // Merge management fallback into final leads (after recruiter leads)
@@ -580,6 +573,7 @@ function parseAnyCurrentEmployeeResult(
   }
 
   if (!rawName) return null;
+  if (!isLikelyPersonName(rawName, companyName)) return null;
 
   // Strip trailing "@company" suffix from rawTitle (e.g. "Engineer @Acme" → "Engineer")
   if (rawTitle) rawTitle = rawTitle.replace(/\s*@\S+$/, "").trim() || null;
@@ -608,7 +602,7 @@ function parseAnyCurrentEmployeeResult(
 
 // ─── Management lead parser ────────────────────────────────────────────────────
 
-const MGMT_TITLE_RE = /\b(founder|co-?founder|chief executive officer|chief executive|ceo|chief technology officer|chief technology|cto|chief operating officer|chief operating|coo|chief product officer|chief product|cpo|chief people officer|chief people|president|vice president|vp of|head of|director of|general manager|managing director|team lead)\b/i;
+const MGMT_TITLE_RE = /\b(founder|co-?founder|chief executive officer|chief executive|ceo|chief financial officer|chief financial|cfo|chief technology officer|chief technology|cto|chief operating officer|chief operating|coo|chief product officer|chief product|cpo|chief people officer|chief people|president|vice president|vp of|head of|director of|general manager|managing director|team lead)\b/i;
 
 /**
  * Parse a LinkedIn search result specifically for founder/leadership contacts.
@@ -663,6 +657,7 @@ function parseMgmtLinkedInResult(
   }
 
   if (!rawName) return null;
+  if (!isLikelyPersonName(rawName, companyName)) return null;
 
   // Strip trailing "@company" suffix from rawTitle (e.g. "CEO @Jobright.ai" → "CEO")
   if (rawTitle) rawTitle = rawTitle.replace(/\s*@\S+$/, "").trim() || null;
@@ -683,6 +678,7 @@ function parseMgmtLinkedInResult(
   // ── Title: use parsed headline title, otherwise "Management" ─────────────────
   const jobTitle = rawTitle?.trim() || "Management";
   if (rawTitle && !MGMT_TITLE_RE.test(rawTitle)) return null;
+  if (!rawTitle && !MGMT_TITLE_RE.test(result.snippet)) return null;
 
   const location = sanitiseLocation(extractLinkedInLocation(result.snippet));
   const emailMatch = result.snippet.match(/\b[\w.+%-]{2,30}@[\w.-]+\.[a-z]{2,}\b/i);
@@ -728,8 +724,7 @@ type SearchQuery = SQR["queries"][number];
  * For LinkedIn jobs, Q1+Q2 are replaced with more targeted LinkedIn-specific variants.
  */
 function buildDynamicQueries(input: RecruiterSearchInput): SearchQuery[] {
-  const { company_name, job_title, location, job_url } = input;
-  const isLinkedIn = job_url.includes("linkedin.com/jobs");
+  const { company_name, job_title, location } = input;
 
   // Detect remote jobs — location-pinned queries don't help for fully remote roles
   const isRemote = /^remote$/i.test(location.trim()) || /\bremote\b/i.test(location);
@@ -738,24 +733,24 @@ function buildDynamicQueries(input: RecruiterSearchInput): SearchQuery[] {
     // For remote jobs, skip location filters entirely — search company-wide
     return [
       {
-        query: `site:linkedin.com/in "${company_name}" ("recruiter" OR "talent acquisition")`,
+        query: `site:linkedin.com/in "${company_name}" ("recruiter" OR "talent acquisition" OR "technical recruiter")`,
         purpose: `LinkedIn recruiters at ${company_name} (remote role — no location filter)`,
         platform: "linkedin",
       },
       {
-        query: `site:linkedin.com/in "${company_name}" ("technical recruiter" OR "sourcer" OR "recruiting manager")`,
+        query: `site:linkedin.com/in "${company_name}" ("sourcer" OR "recruiting manager" OR "talent partner")`,
         purpose: `LinkedIn technical recruiters and sourcers at ${company_name}`,
         platform: "linkedin",
       },
       {
-        query: `site:linkedin.com/in "${company_name}" ("head of talent" OR "vp of recruiting" OR "director of talent")`,
-        purpose: `LinkedIn TA leadership at ${company_name}`,
+        query: `site:linkedin.com/in "${company_name}" ("founder" OR "co-founder" OR "CEO" OR "CFO" OR "CTO" OR "COO" OR "head of" OR "director")`,
+        purpose: `LinkedIn leadership at ${company_name}`,
         platform: "linkedin",
       },
       {
-        query: `"${company_name}" ("recruiter" OR "talent acquisition" OR "sourcer") (site:apollo.io OR site:rocketreach.co)`,
-        purpose: `Contact DB: recruiters at ${company_name}`,
-        platform: "google",
+        query: `site:linkedin.com/in "${company_name}" -"jobs" -"careers"`,
+        purpose: `LinkedIn current employees at ${company_name}`,
+        platform: "linkedin",
       },
     ];
   }
@@ -765,6 +760,13 @@ function buildDynamicQueries(input: RecruiterSearchInput): SearchQuery[] {
   const primaryLocation = locations[0];
   const { city, state } = parseLocationParts(primaryLocation);
   const locationStr = city ?? primaryLocation;
+  const locationTiers = buildLocationTiers(location);
+  const nearbyTerms = [...locationTiers.tier1, ...locationTiers.tier2]
+    .filter((term) => term && term.toLowerCase() !== locationStr.toLowerCase())
+    .slice(0, 4);
+  const nearbyLocationQuery = nearbyTerms.length > 0
+    ? nearbyTerms.map((term) => `"${term}"`).join(" OR ")
+    : `"${state ?? locationStr}"`;
 
   // Determine the job function for role-aware queries
   const jobFunction = extractJobFunction(job_title);
@@ -781,36 +783,25 @@ function buildDynamicQueries(input: RecruiterSearchInput): SearchQuery[] {
     platform: "linkedin",
   });
 
-  // Q2: City + "talent acquisition" — catches TA Partner, TA Manager, TA Lead, etc.
+  // Q2: nearby/metro recruiter coverage — catches people listed outside the exact city.
   queries.push({
-    query: isLinkedIn
-      ? `site:linkedin.com/in "${company_name}" ("${roleRecruiterTerm}" OR "recruiter" OR "talent acquisition") "${job_title}"`
-      : `site:linkedin.com/in "${company_name}" ("${roleRecruiterTerm}" OR "recruiter" OR "talent acquisition")`,
-    purpose: `LinkedIn ${roleRecruiterTerm} and talent acquisition profiles`,
+    query: `site:linkedin.com/in "${company_name}" ("${roleRecruiterTerm}" OR "sourcer" OR "talent partner" OR "recruiting manager") (${nearbyLocationQuery})`,
+    purpose: `LinkedIn recruiters near ${locationStr}`,
     platform: "linkedin",
   });
 
-  // Q3: State-level fallback — catches profiles listed as "Texas" instead of "Austin"
-  // If no state, search for "sourcer" OR "technical recruiter" in the city instead
-  if (state && state.toLowerCase() !== locationStr.toLowerCase()) {
-    queries.push({
-      query: `site:linkedin.com/in "${company_name}" ("recruiter" OR "talent acquisition" OR "sourcer") "${state}"`,
-      purpose: `LinkedIn TA profiles in ${state} (state fallback)`,
-      platform: "linkedin",
-    });
-  } else {
-    queries.push({
-      query: `site:linkedin.com/in "${company_name}" ("technical recruiter" OR "sourcer" OR "recruiting partner") "${locationStr}"`,
-      purpose: `LinkedIn technical recruiters and sourcers in ${locationStr}`,
-      platform: "linkedin",
-    });
-  }
-
-  // Q4: Contact database — Apollo/RocketReach, often has emails directly in snippets
+  // Q3: management fallback candidates in the same location/nearby area.
   queries.push({
-    query: `"${company_name}" ("recruiter" OR "talent acquisition" OR "sourcer") "${locationStr}" (site:apollo.io OR site:rocketreach.co)`,
-    purpose: `Contact DB: recruiters in ${locationStr}`,
-    platform: "google",
+    query: `site:linkedin.com/in "${company_name}" ("founder" OR "co-founder" OR "CEO" OR "CFO" OR "CTO" OR "COO" OR "head of" OR "director") ("${locationStr}" OR ${nearbyLocationQuery})`,
+    purpose: `LinkedIn leadership near ${locationStr}`,
+    platform: "linkedin",
+  });
+
+  // Q4: current employees in the same location/nearby area for last-resort fallback.
+  queries.push({
+    query: `site:linkedin.com/in "${company_name}" ("${locationStr}" OR ${nearbyLocationQuery}) -"jobs" -"careers"`,
+    purpose: `LinkedIn current employees near ${locationStr}`,
+    platform: "linkedin",
   });
 
   return queries;

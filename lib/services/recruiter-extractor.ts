@@ -104,7 +104,7 @@ function hasNoiseSignal(text: string): boolean {
   return NOISE_TERMS.some((k) => lower.includes(k));
 }
 
-function isLikelyPersonName(name: string, companyName: string): boolean {
+export function isLikelyPersonName(name: string, companyName: string): boolean {
   const cleaned = name
     .replace(/\([^)]*\)/g, " ")
     .replace(/\b(email|phone|linkedin|profile)\b/gi, " ")
