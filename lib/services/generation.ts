@@ -751,6 +751,35 @@ function buildDynamicQueries(input: RecruiterSearchInput): SearchQuery[] {
   const slug = company_name.toLowerCase().replace(/\s+/g, "");
   const isLinkedIn = job_url.includes("linkedin.com/jobs");
 
+  // Detect remote jobs — location-pinned queries don't help for fully remote roles
+  const isRemote = /^remote$/i.test(location.trim()) || /\bremote\b/i.test(location);
+
+  if (isRemote) {
+    // For remote jobs, skip location filters entirely — search company-wide
+    return [
+      {
+        query: `site:linkedin.com/in "${company_name}" "recruiter" OR "talent acquisition"`,
+        purpose: `LinkedIn recruiters at ${company_name} (remote role — no location filter)`,
+        platform: "linkedin",
+      },
+      {
+        query: `site:linkedin.com/in "${company_name}" "technical recruiter" OR "sourcer" OR "recruiting manager"`,
+        purpose: `LinkedIn technical recruiters and sourcers at ${company_name}`,
+        platform: "linkedin",
+      },
+      {
+        query: `site:linkedin.com/in "${company_name}" "head of talent" OR "vp of recruiting" OR "director of talent"`,
+        purpose: `LinkedIn TA leadership at ${company_name}`,
+        platform: "linkedin",
+      },
+      {
+        query: `"${company_name}" recruiter site:apollo.io OR site:rocketreach.co`,
+        purpose: `Contact DB: recruiters at ${company_name}`,
+        platform: "google",
+      },
+    ];
+  }
+
   // Parse location into city + state components
   const locations = location.split(/[\/,;]|\band\b/i).map((l) => l.trim()).filter(Boolean);
   const primaryLocation = locations[0];
@@ -778,7 +807,6 @@ function buildDynamicQueries(input: RecruiterSearchInput): SearchQuery[] {
 
   // Q3: State-level fallback — catches profiles listed as "Texas" instead of "Austin"
   // If no state, search for "sourcer" OR "technical recruiter" in the city instead
-  const regionStr = state ?? locationStr;
   if (state && state.toLowerCase() !== locationStr.toLowerCase()) {
     queries.push({
       query: `site:linkedin.com/in "${company_name}" "recruiter" OR "talent acquisition" "${state}"`,

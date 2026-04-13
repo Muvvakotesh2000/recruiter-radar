@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import {
   Building2,
   MapPin,
+  Globe,
   Users,
   ExternalLink,
   Trash2,
@@ -39,6 +40,7 @@ export function JobCard({
   const [deleting, setDeleting] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const status = getStatusColor(job.status);
+  const isRemote = /^remote$/i.test(job.location.trim()) || /\bremote\b/i.test(job.location);
 
   async function handleDelete(e: React.MouseEvent) {
     e.preventDefault();
@@ -124,10 +126,17 @@ export function JobCard({
               </div>
 
               <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5" />
-                  {job.location}
-                </span>
+                {isRemote ? (
+                  <span className="flex items-center gap-1 text-emerald-400">
+                    <Globe className="w-3.5 h-3.5" />
+                    Remote
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5" />
+                    {job.location}
+                  </span>
+                )}
                 <span className="flex items-center gap-1">
                   <Users className="w-3.5 h-3.5" />
                   {leadCount} recruiter{leadCount !== 1 ? "s" : ""}
