@@ -52,9 +52,12 @@ const PRIMARY_RECRUITER_TERMS = [
 const SECONDARY_HIRING_TERMS = [
   "hiring manager",
   "engineering manager",
+  "recruiting lead",
   "head of talent",
+  "head of recruiting",
   "people operations",
   "hr partner",
+  "hr business partner",
   "human resources",
   "director of engineering",
   "vp of engineering",
@@ -65,6 +68,7 @@ const SECONDARY_HIRING_TERMS = [
 // Titles that indicate the result is a candidate, not a recruiter
 const NOISE_TERMS = [
   "software engineer",
+  "senior software engineer",
   "data scientist",
   "product manager",
   "student at",
@@ -76,7 +80,47 @@ const NOISE_TERMS = [
   "analyst",
   "consultant",
   "intern",
+  "job opening",
+  "jobs at",
+  "careers",
+  "company profile",
 ];
+
+const COMPANY_PAGE_WORDS = /\b(company|careers|jobs|job|hiring|profile|overview|about|inc|llc|ltd|corp|corporation|group|team)\b/i;
+
+function normText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+export function hasRecruiterSignal(text: string): boolean {
+  const lower = text.toLowerCase();
+  return [...PRIMARY_RECRUITER_TERMS, ...SECONDARY_HIRING_TERMS].some((k) =>
+    lower.includes(k)
+  );
+}
+
+function hasNoiseSignal(text: string): boolean {
+  const lower = text.toLowerCase();
+  return NOISE_TERMS.some((k) => lower.includes(k));
+}
+
+function isLikelyPersonName(name: string, companyName: string): boolean {
+  const cleaned = name
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/\b(email|phone|linkedin|profile)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const words = cleaned.split(/\s+/).filter(Boolean);
+
+  if (words.length < 2 || words.length > 4) return false;
+  if (cleaned.length < 5 || cleaned.length > 55) return false;
+  if (COMPANY_PAGE_WORDS.test(cleaned)) return false;
+  if (normText(cleaned) === normText(companyName)) return false;
+  if (fuzzyCompanyMatch(cleaned, companyName)) return false;
+  if (!words.every((word) => /^[A-Z][A-Za-z'().-]*$/.test(word))) return false;
+
+  return true;
+}
 
 export function classifyTitle(title: string): "primary" | "secondary" | "noise" | "unknown" {
   const t = title.toLowerCase();
@@ -467,6 +511,7 @@ export function parseLinkedInResult(
   }
 
   if (!rawName) return null;
+  if (!isLikelyPersonName(rawName, companyName)) return null;
 
   // Reject if the parsed company/title field looks like a certification
   // e.g. "Name - Google Cloud Certified | LinkedIn" → rawCompany = "Google Cloud Certified"
@@ -541,6 +586,7 @@ export function parseContactDBResult(
   if (!m) return null;
 
   const [, rawName, rawCompany] = m;
+  if (!isLikelyPersonName(rawName, companyName)) return null;
   if (!fuzzyCompanyMatch(rawCompany.trim(), companyName)) return null;
 
   // Try to extract job title from snippet
@@ -586,8 +632,6 @@ export function filterResultsBySignal(
   companyName: string
 ): SearchResult[] {
   const companyNorm = companyName.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const allRecruiterTerms = [...PRIMARY_RECRUITER_TERMS, ...SECONDARY_HIRING_TERMS];
-
   return results.filter((r) => {
     const text = `${r.title} ${r.snippet}`.toLowerCase();
     const textNorm = text.replace(/[^a-z0-9\s]/g, "");
@@ -601,9 +645,10 @@ export function filterResultsBySignal(
       r.url.includes("apollo.io") ||
       r.url.includes("rocketreach.co");
 
-    const hasRecruiterSignal = allRecruiterTerms.some((k) => text.includes(k));
+    const recruiterSignal = hasRecruiterSignal(text);
+    if (isProfileURL && hasNoiseSignal(text) && !recruiterSignal) return false;
 
-    return isProfileURL || hasRecruiterSignal;
+    return recruiterSignal || (isProfileURL && companyInEmploymentContext(text, companyName));
   });
 }
 
@@ -649,6 +694,7 @@ export function deduplicateLeads(leads: ParsedLead[]): ParsedLead[] {
   for (const lead of leads) {
     const key = normName(lead.full_name);
     if (!key || key.length < 4) continue;
+    if (normText(lead.full_name) === normText(lead.company)) continue;
 
     const existing = map.get(key);
     if (!existing) {
