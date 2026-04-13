@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
-import { Building2, Briefcase, Link as LinkIcon, MapPin, Sparkles, User } from "lucide-react";
+import { Building2, Briefcase, Globe, Link as LinkIcon, MapPin, Sparkles, User } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -36,10 +36,13 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingText, setGeneratingText] = useState("");
 
+  const [isRemote, setIsRemote] = useState(false);
+
   const {
     register,
     handleSubmit,
     watch,
+    setValue,
     formState: { errors },
     reset,
   } = useForm<JobSubmitInput>({
@@ -48,6 +51,15 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
 
   const jobUrl = watch("job_url", "");
   const isLinkedIn = jobUrl.includes("linkedin.com/jobs");
+
+  function handleRemoteToggle(checked: boolean) {
+    setIsRemote(checked);
+    if (checked) {
+      setValue("location", "Remote", { shouldValidate: true });
+    } else {
+      setValue("location", "", { shouldValidate: false });
+    }
+  }
 
   async function onSubmit(data: JobSubmitInput) {
     setIsGenerating(true);
@@ -93,6 +105,7 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
   function handleClose() {
     if (isGenerating) return;
     reset();
+    setIsRemote(false);
     onOpenChange(false);
   }
 
@@ -137,17 +150,50 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="location">Location</Label>
-                <Input
-                  id="location"
-                  placeholder="e.g. San Francisco, CA / New York, NY"
-                  icon={<MapPin className="w-4 h-4" />}
-                  {...register("location")}
-                  error={errors.location?.message}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Separate multiple locations with <code className="text-brand-400">/</code> or comma. Recruiters in your locations are prioritized.
-                </p>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="location">Location</Label>
+                  <label className="flex items-center gap-1.5 cursor-pointer select-none group">
+                    <input
+                      type="checkbox"
+                      checked={isRemote}
+                      onChange={(e) => handleRemoteToggle(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded accent-brand-500 cursor-pointer"
+                    />
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+                      <Globe className="w-3 h-3" />
+                      Remote
+                    </span>
+                  </label>
+                </div>
+                <AnimatePresence initial={false}>
+                  {!isRemote && (
+                    <motion.div
+                      key="location-input"
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden"
+                    >
+                      <Input
+                        id="location"
+                        placeholder="e.g. San Francisco, CA / New York, NY"
+                        icon={<MapPin className="w-4 h-4" />}
+                        {...register("location")}
+                        error={errors.location?.message}
+                      />
+                      <p className="text-xs text-muted-foreground mt-1.5">
+                        Separate multiple locations with <code className="text-brand-400">/</code> or comma. Recruiters in your locations are prioritized.
+                      </p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                {isRemote && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm">
+                    <Globe className="w-3.5 h-3.5 flex-shrink-0" />
+                    Searching company-wide — no location filter applied
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">
