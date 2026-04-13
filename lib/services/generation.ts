@@ -370,8 +370,10 @@ export async function runGeneration(
         )
       );
 
-      // Collect unique management results
-      const mgmtSeenUrls = new Set(seenUrls); // avoid duplicating earlier results
+      // Collect unique management results (fresh dedup — do NOT inherit seenUrls here;
+      // profiles returned by Phase 2 recruiter queries but rejected for lacking a recruiter
+      // title must be re-evaluated by the management parser with its looser criteria)
+      const mgmtSeenUrls = new Set<string>();
       const mgmtResults: SearchResult[] = [];
 
       for (const resp of mgmtSearches) {
@@ -431,7 +433,7 @@ export async function runGeneration(
         });
 
       if (broadResults) {
-        const broadSeenUrls = new Set(seenUrls);
+        const broadSeenUrls = new Set<string>(); // fresh dedup — same reason as Phase 4.7
         for (const r of broadResults.results) {
           if (broadSeenUrls.has(r.url) || !r.snippet.trim()) continue;
           broadSeenUrls.add(r.url);
