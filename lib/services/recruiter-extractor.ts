@@ -426,7 +426,9 @@ export function extractLinkedInLocation(snippet: string): string | null {
     candidates.push(seg);
   }
 
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) {
+    return extractLocation(snippet);
+  }
 
   // Prefer a candidate that contains a country name or a comma (city, country/state)
   // — these are more specific and less likely to be a company's HQ region.

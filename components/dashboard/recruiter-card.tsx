@@ -112,6 +112,26 @@ function OutreachSendButton({ message, linkedinUrl }: { message: string; linkedi
 
 const TOP_N = 5;
 
+function extractLocationFromSource(source: string | null | undefined): string | null {
+  if (!source) return null;
+  const text = source.replace(/^\[[^\]]+\]\s*/, "");
+  const patterns = [
+    /\b([A-Z][A-Za-z .'-]+,\s*(?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|IA|ID|IL|IN|KS|KY|LA|MA|MD|ME|MI|MN|MO|MS|MT|NC|ND|NE|NH|NJ|NM|NV|NY|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VA|VT|WA|WI|WV|WY))\b/,
+    /\b([A-Z][A-Za-z .'-]+,\s*(?:United States|USA|Canada|India|United Kingdom|UK|Germany|France|Ireland|Australia))\b/i,
+    /\b(Greater\s+[A-Z][A-Za-z .'-]+(?:\s+Area)?)\b/,
+    /\b([A-Z][A-Za-z .'-]+\s+(?:Metropolitan|Metro)\s+Area)\b/,
+    /\b([A-Z][A-Za-z .'-]+\s+Area)\b/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const location = match?.[1]?.replace(/\s+/g, " ").trim();
+    if (location && location.length <= 60) return location;
+  }
+
+  return null;
+}
+
 export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps) {
   const [showOutreach, setShowOutreach] = useState(false);
   const [showPatterns, setShowPatterns] = useState(false);
@@ -135,6 +155,7 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
   const moreCandidates = allCandidates.slice(TOP_N);
 
   const hasVerifiedEmail = lead.email && lead.email_type === "verified";
+  const displayLocation = lead.location ?? extractLocationFromSource(lead.source);
 
   return (
     <motion.div
@@ -174,7 +195,7 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
             <div className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-md border border-border/50 bg-secondary/40 px-2 py-1">
               <MapPin className="w-3.5 h-3.5 text-brand-300 flex-shrink-0" />
               <span className="text-xs text-foreground/80 truncate">
-                {lead.location ?? "Location unavailable"}
+                {displayLocation ?? "Location unavailable"}
               </span>
             </div>
           </div>

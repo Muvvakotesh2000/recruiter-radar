@@ -194,9 +194,29 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
     return 3;
   }
 
+  function extractLocationFromSource(source: string | null | undefined): string | null {
+    if (!source) return null;
+    const text = source.replace(/^\[[^\]]+\]\s*/, "");
+    const patterns = [
+      /\b([A-Z][A-Za-z .'-]+,\s*(?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|IA|ID|IL|IN|KS|KY|LA|MA|MD|ME|MI|MN|MO|MS|MT|NC|ND|NE|NH|NJ|NM|NV|NY|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VA|VT|WA|WI|WV|WY))\b/,
+      /\b([A-Z][A-Za-z .'-]+,\s*(?:United States|USA|Canada|India|United Kingdom|UK|Germany|France|Ireland|Australia))\b/i,
+      /\b(Greater\s+[A-Z][A-Za-z .'-]+(?:\s+Area)?)\b/,
+      /\b([A-Z][A-Za-z .'-]+\s+(?:Metropolitan|Metro)\s+Area)\b/,
+      /\b([A-Z][A-Za-z .'-]+\s+Area)\b/,
+    ];
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      const location = match?.[1]?.replace(/\s+/g, " ").trim();
+      if (location && location.length <= 60) return location;
+    }
+
+    return null;
+  }
+
   const leads = (job.recruiter_leads ?? []).slice().sort((a, b) => {
-    const aLocationRank = locationMatchRank(a.location);
-    const bLocationRank = locationMatchRank(b.location);
+    const aLocationRank = locationMatchRank(a.location ?? extractLocationFromSource(a.source));
+    const bLocationRank = locationMatchRank(b.location ?? extractLocationFromSource(b.source));
     if (aLocationRank !== bLocationRank) return aLocationRank - bLocationRank;
     return (CONFIDENCE_ORDER[a.confidence_level] ?? 3) - (CONFIDENCE_ORDER[b.confidence_level] ?? 3);
   });

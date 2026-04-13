@@ -118,6 +118,9 @@ function extractEmbeddedJsonCandidates(html: string): ParsedJobData[] {
     const script = match[1].trim();
     if (!script || !looksLikeJobJson(script)) continue;
 
+    const greenhouseRemixJob = extractGreenhouseRemixJob(script);
+    if (greenhouseRemixJob) candidates.push(greenhouseRemixJob);
+
     for (const jsonText of extractJsonBlobs(script)) {
       const parsed = parseJsonLoose(jsonText);
       if (parsed === null) continue;
@@ -131,6 +134,42 @@ function extractEmbeddedJsonCandidates(html: string): ParsedJobData[] {
   }
 
   return candidates;
+}
+
+function extractGreenhouseRemixJob(script: string): ParsedJobData | null {
+  if (!script.includes("window.__remixContext") || !script.includes('"jobPost"')) {
+    return null;
+  }
+
+  const jobPostStart = script.indexOf('"jobPost"');
+  const jobPostSlice = script.slice(jobPostStart, jobPostStart + 80_000);
+  const title = readJsonStringField(jobPostSlice, "title");
+  const company = readJsonStringField(jobPostSlice, "company_name");
+  const location = readJsonStringField(jobPostSlice, "job_post_location");
+  const remote = isRemoteText(location ?? "");
+
+  if (!title && !company && !location) return null;
+
+  return normalizeParsedJob({
+    company_name: cleanCompanyName(company),
+    job_title: cleanJobTitle(title),
+    location: remote ? "Remote" : cleanLocation(location),
+    is_remote: remote,
+    source: "embedded-json",
+    confidence: company && title && (location || remote) ? "high" : "medium",
+  });
+}
+
+function readJsonStringField(text: string, key: string): string | null {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(`"${escapedKey}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`).exec(text);
+  if (!match) return null;
+
+  try {
+    return normalizeText(JSON.parse(`"${match[1]}"`));
+  } catch {
+    return normalizeText(unescapeJsString(match[1]));
+  }
 }
 
 function extractMetaCandidate(html: string): ParsedJobData {
@@ -379,7 +418,7 @@ function findJobLikeRecords(value: unknown): UnknownRecord[] {
 }
 
 function looksLikeJobJson(script: string): boolean {
-  return /jobposting|jobTitle|job_title|hiringOrganization|jobLocation|positionTitle|companyName/i.test(script);
+  return /jobposting|jobPost|jobTitle|job_title|job_post_location|hiringOrganization|jobLocation|positionTitle|companyName|company_name/i.test(script);
 }
 
 function extractJsonBlobs(script: string): string[] {
