@@ -200,6 +200,8 @@ function extractFromGenericJobRecord(item: UnknownRecord): ParsedJobData {
     item.location,
     item.locationName,
     item.jobLocation,
+    item.job_post_location,
+    item.jobPostLocation,
     item.primaryLocation,
     item.office,
   );
@@ -385,7 +387,7 @@ function extractJsonBlobs(script: string): string[] {
   const nextData = script.match(/self\.__next_f\.push\(\[(?:\d+),\s*"([\s\S]*)"\]\)/)?.[1];
   if (nextData) blobs.push(unescapeJsString(nextData));
 
-  const assignmentRe = /(?:window\.__INITIAL_STATE__|window\.__APOLLO_STATE__|__NEXT_DATA__|window\.initialState)\s*=\s*({[\s\S]*?});/gi;
+  const assignmentRe = /(?:window\.__INITIAL_STATE__|window\.__APOLLO_STATE__|window\.__remixContext|__NEXT_DATA__|window\.initialState)\s*=\s*({[\s\S]*?});/gi;
   let match: RegExpExecArray | null;
   while ((match = assignmentRe.exec(script)) !== null) {
     blobs.push(match[1]);

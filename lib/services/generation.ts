@@ -610,18 +610,11 @@ function prioritizeLocationMatches(
   if (isRemote) return sorted;
 
   const tiers = buildLocationTiers(input.location);
-  const exactOrNearby = sorted.filter((lead) => locationTierScore(lead.location, tiers) <= 1);
-  const sameState = sorted.filter((lead) => locationTierScore(lead.location, tiers) === 2);
-
-  if (exactOrNearby.length > 0) {
-    return [...exactOrNearby, ...sameState];
-  }
-
-  if (sameState.length > 0) {
-    return sameState;
-  }
-
-  return sorted;
+  return sorted.sort((a, b) => {
+    const aTier = locationTierScore(a.location, tiers);
+    const bTier = locationTierScore(b.location, tiers);
+    return aTier - bTier || b.score - a.score;
+  });
 }
 
 // ─── Management lead parser ────────────────────────────────────────────────────

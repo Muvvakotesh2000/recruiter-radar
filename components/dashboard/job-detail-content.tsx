@@ -135,7 +135,8 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
     "san francisco":["bay area","sf bay area","silicon valley","greater san francisco","sf","east bay","south bay","san jose","oakland"],
     "san jose":["bay area","sf bay area","silicon valley","south bay"],
     "new york":["nyc","new york city","greater new york","tri-state area","brooklyn","queens","manhattan","new jersey","nj"],
-    "los angeles":["la","greater los angeles","socal","southern california","long beach","orange county","oc","santa monica"],
+    "los angeles":["la","greater los angeles","los angeles metropolitan area","la metropolitan area","socal","southern california","long beach","orange county","oc","santa monica","el segundo","culver city","manhattan beach","torrance"],
+    "el segundo":["los angeles","greater los angeles","los angeles metropolitan area","la metropolitan area","socal","southern california","santa monica","culver city","manhattan beach","torrance"],
     "seattle":["greater seattle","puget sound","bellevue","redmond","kirkland"],
     "chicago":["greater chicago","chicagoland"],
     "boston":["greater boston","cambridge ma","cambridge","somerville","waltham"],
@@ -164,14 +165,14 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
     for (const part of parts) {
       add0(part);
       const words = part.split(/\s+/);
-      add0(words[0]);
+      if (words[0]?.length > 2) add0(words[0]);
       const lastWord = words[words.length - 1].toUpperCase();
       if (STATE_ABBR_UI[lastWord]) { add2(STATE_ABBR_UI[lastWord]); add2(lastWord.toLowerCase()); }
       for (const [abbr, full] of Object.entries(STATE_ABBR_UI)) {
         if (part.includes(full)) { add2(full); add2(abbr.toLowerCase()); }
       }
       for (const [city, aliases] of Object.entries(METRO_ALIASES_UI)) {
-        if (words[0].includes(city) || city.includes(words[0]) || part.includes(city)) {
+        if (part.includes(city) || (words[0]?.length > 2 && (words[0].includes(city) || city.includes(words[0])))) {
           aliases.forEach(a => add1(a)); add1(city);
         }
         if (aliases.some(a => a === part || part.includes(a))) {
@@ -182,18 +183,21 @@ export function JobDetailContent({ job, lastRun }: JobDetailContentProps) {
     return { tier0, tier1, tier2 };
   }
 
-  function isExactCityMatch(leadLocation: string | null): boolean {
-    if (!leadLocation) return false;
+  function locationMatchRank(leadLocation: string | null): number {
+    if (!leadLocation) return 4;
     const ll = leadLocation.toLowerCase();
     const llCity = ll.split(",")[0].trim();
     const tiers = buildUILocationTiers(job.location ?? "");
-    return tiers.tier0.some(t => ll.includes(t) || t.includes(llCity));
+    if (tiers.tier0.some(t => ll.includes(t) || t.includes(llCity))) return 0;
+    if (tiers.tier1.some(t => ll.includes(t) || t.includes(llCity))) return 1;
+    if (tiers.tier2.some(t => ll.includes(t))) return 2;
+    return 3;
   }
 
   const leads = (job.recruiter_leads ?? []).slice().sort((a, b) => {
-    const aExact = isExactCityMatch(a.location) ? 0 : 1;
-    const bExact = isExactCityMatch(b.location) ? 0 : 1;
-    if (aExact !== bExact) return aExact - bExact;
+    const aLocationRank = locationMatchRank(a.location);
+    const bLocationRank = locationMatchRank(b.location);
+    if (aLocationRank !== bLocationRank) return aLocationRank - bLocationRank;
     return (CONFIDENCE_ORDER[a.confidence_level] ?? 3) - (CONFIDENCE_ORDER[b.confidence_level] ?? 3);
   });
   const emailLeads = leads.filter((l) => l.email);
