@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
-import { Building2, Briefcase, Globe, Link as LinkIcon, MapPin, Sparkles } from "lucide-react";
+import { Building2, Briefcase, Globe, Link as LinkIcon, Loader2, MapPin, Sparkles, Wand2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -37,19 +37,77 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
   const [generatingText, setGeneratingText] = useState("");
 
   const [isRemote, setIsRemote] = useState(false);
+  const [autofilling, setAutofilling] = useState(false);
+  const [autofilled, setAutofilled] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const {
     register,
     handleSubmit,
     watch,
     setValue,
+    getValues,
     formState: { errors },
     reset,
   } = useForm<JobSubmitInput>({
     resolver: zodResolver(JobSubmitSchema),
   });
 
-  watch("job_url", "");
+  const jobUrl = watch("job_url", "");
+
+  // Auto-fill fields when a valid URL is pasted
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    // Only trigger for plausible URLs
+    if (!jobUrl || !jobUrl.startsWith("http")) {
+      setAutofilled(false);
+      return;
+    }
+
+    debounceRef.current = setTimeout(async () => {
+      // Skip if company + title are already filled by the user
+      const { company_name, job_title } = getValues();
+      if (company_name?.trim() && job_title?.trim()) return;
+
+      setAutofilling(true);
+      setAutofilled(false);
+      try {
+        const res = await fetch(`/api/parse-job?url=${encodeURIComponent(jobUrl)}`);
+        const json = await res.json();
+        if (!json.success || !json.data) return;
+
+        const { company_name: co, job_title: jt, location: loc, is_remote: remote } = json.data;
+
+        let filled = false;
+        if (co && !getValues("company_name")?.trim()) {
+          setValue("company_name", co, { shouldValidate: true });
+          filled = true;
+        }
+        if (jt && !getValues("job_title")?.trim()) {
+          setValue("job_title", jt, { shouldValidate: true });
+          filled = true;
+        }
+        if (remote) {
+          setIsRemote(true);
+          setValue("location", "Remote", { shouldValidate: true });
+          filled = true;
+        } else if (loc && !getValues("location")?.trim()) {
+          setValue("location", loc, { shouldValidate: true });
+          filled = true;
+        }
+
+        if (filled) setAutofilled(true);
+      } catch {
+        // silently ignore — user fills manually
+      } finally {
+        setAutofilling(false);
+      }
+    }, 600);
+
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobUrl]);
 
   function handleRemoteToggle(checked: boolean) {
     setIsRemote(checked);
@@ -105,6 +163,8 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
     if (isGenerating) return;
     reset();
     setIsRemote(false);
+    setAutofilled(false);
+    setAutofilling(false);
     onOpenChange(false);
   }
 
@@ -125,13 +185,55 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
             </DialogHeader>
 
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 mt-2">
+              {/* Job URL first — triggers auto-fill */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="job_url">Job URL</Label>
+                  <AnimatePresence>
+                    {autofilling && (
+                      <motion.span
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="flex items-center gap-1 text-xs text-muted-foreground"
+                      >
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Filling details…
+                      </motion.span>
+                    )}
+                    {autofilled && !autofilling && (
+                      <motion.span
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="flex items-center gap-1 text-xs text-brand-400"
+                      >
+                        <Wand2 className="w-3 h-3" />
+                        Auto-filled
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
+                </div>
+                <Input
+                  id="job_url"
+                  type="url"
+                  placeholder="https://jobs.company.com/role/..."
+                  icon={<LinkIcon className="w-4 h-4" />}
+                  autoFocus
+                  {...register("job_url")}
+                  error={errors.job_url?.message}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Paste the full URL — we&apos;ll try to fill the details automatically.
+                </p>
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="company_name">Company Name</Label>
                 <Input
                   id="company_name"
                   placeholder="e.g. Google, Stripe, OpenAI"
-                  icon={<Building2 className="w-4 h-4" />}
-                  autoFocus
+                  icon={autofilling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Building2 className="w-4 h-4" />}
                   {...register("company_name")}
                   error={errors.company_name?.message}
                 />
@@ -142,7 +244,7 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
                 <Input
                   id="job_title"
                   placeholder="e.g. Senior Software Engineer"
-                  icon={<Briefcase className="w-4 h-4" />}
+                  icon={autofilling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Briefcase className="w-4 h-4" />}
                   {...register("job_title")}
                   error={errors.job_title?.message}
                 />
@@ -177,12 +279,12 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
                       <Input
                         id="location"
                         placeholder="e.g. San Francisco, CA / New York, NY"
-                        icon={<MapPin className="w-4 h-4" />}
+                        icon={autofilling ? <Loader2 className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4" />}
                         {...register("location")}
                         error={errors.location?.message}
                       />
                       <p className="text-xs text-muted-foreground mt-1.5">
-                        Separate multiple locations with <code className="text-brand-400">/</code> or comma. Recruiters in your locations are prioritized.
+                        Separate multiple locations with <code className="text-brand-400">/</code> or comma.
                       </p>
                     </motion.div>
                   )}
@@ -195,22 +297,7 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="job_url">Job URL</Label>
-                <Input
-                  id="job_url"
-                  type="url"
-                  placeholder="https://jobs.company.com/role/..."
-                  icon={<LinkIcon className="w-4 h-4" />}
-                  {...register("job_url")}
-                  error={errors.job_url?.message}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Paste the full URL from LinkedIn, Greenhouse, Lever, etc.
-                </p>
-              </div>
-
-<Button
+              <Button
                 type="submit"
                 variant="gradient"
                 className="w-full gap-2 h-11"
