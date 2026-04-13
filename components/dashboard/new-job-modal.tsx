@@ -51,13 +51,14 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
   const [isRemote, setIsRemote] = useState(false);
   const [autofilling, setAutofilling] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastParsedUrlRef = useRef<string | null>(null);
+  const parseRequestRef = useRef(0);
 
   const {
     register,
     handleSubmit,
     watch,
     setValue,
-    getValues,
     formState: { errors },
     reset,
   } = useForm<JobSubmitInput>({
@@ -67,51 +68,66 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
   const jobUrl = watch("job_url", "");
   const watchedValues = watch();
 
-  // Auto-fill when a valid URL is pasted (only in url mode)
+  // Auto-fill when a valid URL is pasted or changed.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!jobUrl || !jobUrl.startsWith("http") || mode !== "url") return;
+    const trimmedUrl = jobUrl.trim();
+
+    if (!trimmedUrl || !trimmedUrl.startsWith("http")) return;
+    if (trimmedUrl === lastParsedUrlRef.current && mode !== "url") return;
+
+    const requestId = parseRequestRef.current + 1;
+    parseRequestRef.current = requestId;
+    setMode("url");
+    setValue("company_name", "", { shouldValidate: true });
+    setValue("job_title", "", { shouldValidate: true });
+    setValue("location", "", { shouldValidate: true });
+    setIsRemote(false);
 
     debounceRef.current = setTimeout(async () => {
       setAutofilling(true);
       try {
-        const res = await fetch(`/api/parse-job?url=${encodeURIComponent(jobUrl)}`);
+        const res = await fetch(`/api/parse-job?url=${encodeURIComponent(trimmedUrl)}`);
         const json = await res.json();
+        if (parseRequestRef.current !== requestId) return;
 
         if (json.success && json.data) {
           const { company_name: co, job_title: jt, location: loc, is_remote: remote } = json.data;
 
-          if (co) setValue("company_name", co, { shouldValidate: true });
-          if (jt) setValue("job_title", jt, { shouldValidate: true });
+          setValue("company_name", co ?? "", { shouldValidate: true });
+          setValue("job_title", jt ?? "", { shouldValidate: true });
 
           if (remote) {
             setIsRemote(true);
             setValue("location", "Remote", { shouldValidate: true });
-          } else if (loc) {
-            setValue("location", loc, { shouldValidate: true });
+          } else {
+            setIsRemote(false);
+            setValue("location", loc ?? "", { shouldValidate: true });
           }
 
-          // Switch to preview if we got at least company or title
-          if (co || jt) {
+          lastParsedUrlRef.current = trimmedUrl;
+
+          if (co && jt && (remote || loc)) {
             setMode("preview");
           } else {
-            // Got a URL response but no useful data — go straight to editing
             setMode("editing");
           }
         } else {
-          // Parse failed — let user fill manually
+          lastParsedUrlRef.current = trimmedUrl;
           setMode("editing");
         }
       } catch {
+        if (parseRequestRef.current !== requestId) return;
+        lastParsedUrlRef.current = trimmedUrl;
         setMode("editing");
       } finally {
-        setAutofilling(false);
+        if (parseRequestRef.current === requestId) setAutofilling(false);
       }
     }, 600);
 
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobUrl]);
+  }, [jobUrl, mode]);
 
   function handleRemoteToggle(checked: boolean) {
     setIsRemote(checked);
@@ -140,6 +156,8 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
         description: "Finding recruiters in the background. Results will appear automatically.",
       });
       reset();
+      lastParsedUrlRef.current = null;
+      parseRequestRef.current += 1;
       onOpenChange(false);
       onSuccess();
       router.push(`/dashboard/${result.data.job_id}`);
@@ -159,11 +177,15 @@ export function NewJobModal({ open, onOpenChange, onSuccess }: NewJobModalProps)
     setMode("url");
     setIsRemote(false);
     setAutofilling(false);
+    lastParsedUrlRef.current = null;
+    parseRequestRef.current += 1;
     onOpenChange(false);
   }
 
-  const canSubmit = mode === "preview" ||
-    (mode === "editing" && !!watchedValues.company_name && !!watchedValues.job_title && !!watchedValues.location);
+  const hasRequiredDetails = Boolean(
+    watchedValues.company_name && watchedValues.job_title && watchedValues.location
+  );
+  const canSubmit = (mode === "preview" || mode === "editing") && hasRequiredDetails;
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
