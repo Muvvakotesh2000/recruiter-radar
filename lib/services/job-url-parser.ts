@@ -146,8 +146,12 @@ function extractMetaCandidate(html: string): ParsedJobData {
     "";
   const siteName = cleanCompanyName(meta.get("og:site_name") ?? meta.get("application-name") ?? null);
 
-  const parsedTitle = parseTitleAndCompany(title, siteName);
-  const location = extractLocationFromText(`${title ?? ""} ${description}`);
+  const linkedInTitle = parseLinkedInTitle(title);
+  const parsedTitle = linkedInTitle ?? parseTitleAndCompany(title, siteName);
+  const location =
+    extractLocationFromText(description) ??
+    linkedInTitle?.location ??
+    extractLocationFromText(title ?? "");
   const isRemote = isRemoteText(`${title ?? ""} ${description} ${location ?? ""}`);
 
   return normalizeParsedJob({
@@ -420,6 +424,23 @@ function parseAttributes(tag: string): Record<string, string> {
 
 function extractTitleTag(html: string): string | null {
   return decodeHtmlEntities(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "").trim() || null;
+}
+
+function parseLinkedInTitle(rawTitle: string | null): { title: string | null; company: string | null; location: string | null } | null {
+  if (!rawTitle || !/\blinkedin\b/i.test(rawTitle)) return null;
+
+  const cleaned = normalizeText(rawTitle)
+    .replace(/\s+\|\s*LinkedIn\s*$/i, "")
+    .trim();
+  const match = /^(.+?)\s+hiring\s+(.+?)(?:\s+in\s+(.+))?$/i.exec(cleaned);
+
+  if (!match) return null;
+
+  return {
+    company: cleanCompanyName(match[1]),
+    title: cleanJobTitle(match[2]),
+    location: cleanLocation(match[3] ?? null),
+  };
 }
 
 function parseTitleAndCompany(rawTitle: string | null, fallbackCompany: string | null): { title: string | null; company: string | null } {
