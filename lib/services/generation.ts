@@ -320,7 +320,7 @@ export async function runGeneration(
       // Fix title: if it accidentally matches the job title, reset to generic
       const titleLower = lead.job_title.toLowerCase().trim();
       const jobTitleLower = input.job_title.toLowerCase().trim();
-      if (titleLower === jobTitleLower || titleLower.length === 0) {
+      if ((titleLower === jobTitleLower || titleLower.length === 0) && !isBroadEmployeeLead(lead)) {
         lead = { ...lead, job_title: "Recruiter / Talent Acquisition" };
       }
 
@@ -435,7 +435,12 @@ export async function runGeneration(
       const titleLower = lead.job_title.toLowerCase().trim();
       const jobTitleLower = input.job_title.toLowerCase().trim();
       if (titleLower === jobTitleLower || titleLower.length === 0) {
-        lead = { ...lead, job_title: "Recruiter / Talent Acquisition" };
+        lead = {
+          ...lead,
+          job_title: isBroadEmployeeLead(lead)
+            ? inferEmployeeTitleFromSource(lead.source, input.company_name) ?? "Current Employee"
+            : "Recruiter / Talent Acquisition",
+        };
       }
 
       if (lead.email && lead.email_type === "verified") return lead;
@@ -586,9 +591,14 @@ function parseAnyCurrentEmployeeResult(
   const emailMatch = result.snippet.match(/\b[\w.+%-]{2,30}@[\w.-]+\.[a-z]{2,}\b/i);
   const email = emailMatch?.[0]?.toLowerCase() ?? null;
 
+  const jobTitle =
+    cleanProfileTitle(rawTitle, companyName) ??
+    extractCurrentTitleFromLinkedInSnippet(result.snippet, companyName) ??
+    "Current Employee";
+
   return {
     full_name: rawName.trim(),
-    job_title: rawTitle?.trim() || "Employee",
+    job_title: jobTitle,
     company: companyName,
     location,
     linkedin_url: result.url,
@@ -599,6 +609,49 @@ function parseAnyCurrentEmployeeResult(
     score: 0,
     outreach_message: "",
   };
+}
+
+function isBroadEmployeeLead(lead: ParsedLead): boolean {
+  return lead.source.startsWith("[broad employee fallback]");
+}
+
+function inferEmployeeTitleFromSource(source: string, companyName: string): string | null {
+  return extractCurrentTitleFromLinkedInSnippet(source, companyName);
+}
+
+function extractCurrentTitleFromLinkedInSnippet(snippet: string, companyName: string): string | null {
+  const escapedCompany = companyName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const patterns = [
+    new RegExp(`(?:^|[.\\-–—|•·]\\s*)([A-Z][A-Za-z0-9/&+.,'()\\-\\s]{2,90}?)\\s+(?:at|@)\\s+${escapedCompany}(?:\\b|[.\\-–—|•·,])`, "i"),
+    new RegExp(`(?:current|present)\\s*:?\\s*([A-Z][A-Za-z0-9/&+.,'()\\-\\s]{2,90}?)\\s+(?:at|@)\\s+${escapedCompany}\\b`, "i"),
+  ];
+
+  for (const pattern of patterns) {
+    const match = snippet.match(pattern);
+    const title = cleanProfileTitle(match?.[1] ?? null, companyName);
+    if (title) return title;
+  }
+
+  return null;
+}
+
+function cleanProfileTitle(raw: string | null | undefined, companyName: string): string | null {
+  if (!raw) return null;
+
+  const escapedCompany = companyName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const cleaned = raw
+    .replace(new RegExp(`\\s+(?:at|@)\\s+${escapedCompany}\\b.*$`, "i"), "")
+    .replace(/\s*@\S+$/, "")
+    .replace(/\b(LinkedIn|Profile|View|Experience|Education|Connections)\b.*$/i, "")
+    .replace(/^[\s:;,.|•·–—-]+|[\s:;,.|•·–—-]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned || cleaned.length < 2 || cleaned.length > 90) return null;
+  if (/^(employee|current employee|management)$/i.test(cleaned)) return null;
+  if (fuzzyCompanyMatch(cleaned, companyName)) return null;
+  if (/\b\d{4}\b/.test(cleaned)) return null;
+  return cleaned;
 }
 
 function prioritizeLocationMatches(
@@ -693,9 +746,11 @@ function parseMgmtLinkedInResult(
   if (!headlineMatch && !snippetCurrentMatch) return null;
 
   // ── Title: use parsed headline title, otherwise "Management" ─────────────────
-  const jobTitle = rawTitle?.trim() || "Management";
-  if (rawTitle && !MGMT_TITLE_RE.test(rawTitle)) return null;
-  if (!rawTitle && !MGMT_TITLE_RE.test(result.snippet)) return null;
+  const jobTitle =
+    cleanProfileTitle(rawTitle, companyName) ??
+    extractCurrentTitleFromLinkedInSnippet(result.snippet, companyName) ??
+    "Management";
+  if (!MGMT_TITLE_RE.test(jobTitle) && !MGMT_TITLE_RE.test(result.snippet)) return null;
 
   const location = sanitiseLocation(extractLinkedInLocation(result.snippet));
   const emailMatch = result.snippet.match(/\b[\w.+%-]{2,30}@[\w.-]+\.[a-z]{2,}\b/i);
