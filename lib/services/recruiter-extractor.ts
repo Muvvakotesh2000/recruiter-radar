@@ -236,10 +236,7 @@ export function companyInEmploymentContext(snippet: string, companyName: string)
   const escapedCompany = companyName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
   if (isAmbiguousCompanyName(companyName)) {
-    return new RegExp(
-      `(?:\\bat\\b|@|works\\s+(?:at|for)|employee\\s+at|recruiter\\s+at|talent\\s+acquisition\\s+at)\\s*${escapedCompany}\\b`,
-      "i",
-    ).test(snippet);
+    return new RegExp(`(?:\\bat\\b|@|Â·|â€¢|\\||[-â€“â€”])\\s*${escapedCompany}\\b`, "i").test(snippet);
   }
 
   const s = snippet.toLowerCase();
@@ -515,7 +512,6 @@ export function parseLinkedInResult(
   let rawName: string | null = null;
   let rawTitle: string | null = null;
   let rawCompany: string | null = null;
-  let companyOnlyHeadline = false;
 
   // Format 1: "Name - Title at Company | LinkedIn"  (standard)
   // Format 1b: "Name – Title at Company, City | LinkedIn"
@@ -544,7 +540,6 @@ export function parseLinkedInResult(
     if (m3) {
       rawName = m3[1];
       rawCompany = m3[2];
-      companyOnlyHeadline = true;
       // Title must come from snippet
       const snippetTitle = result.snippet.match(
         /\b((?:senior |lead |principal |staff )?(?:technical recruiter|talent acquisition[a-z\s]*|recruiter|sourcer|staffing[a-z\s]*))/i
@@ -571,9 +566,6 @@ export function parseLinkedInResult(
   // Only fall back to snippet-based check when no company was parsed from the headline.
   const companyToCheck = rawCompany ?? "";
   const titleCompanyMatch = companyToCheck ? fuzzyCompanyMatch(companyToCheck.trim(), companyName) : false;
-  if (companyToCheck && titleCompanyMatch && companyOnlyHeadline && !companyInEmploymentContext(result.snippet, companyName)) {
-    return null;
-  }
   if (companyToCheck && !titleCompanyMatch) return null;
   if (!companyToCheck && !companyInEmploymentContext(result.snippet, companyName)) return null;
 

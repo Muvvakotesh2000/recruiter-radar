@@ -581,7 +581,6 @@ function parseAnyCurrentEmployeeResult(
 
   // Headline company must match — if it doesn't, person currently works elsewhere
   if (!rawCompany || !fuzzyCompanyMatch(rawCompany.trim(), companyName)) return null;
-  if (!rawTitle && !companyInEmploymentContext(result.snippet, companyName)) return null;
 
   const location = sanitiseLocation(extractLinkedInLocation(result.snippet));
   const emailMatch = result.snippet.match(/\b[\w.+%-]{2,30}@[\w.-]+\.[a-z]{2,}\b/i);
@@ -733,7 +732,6 @@ function parseMgmtLinkedInResult(
   // doesn't match, the person works somewhere else — reject.
   // For Format 3 with no separate title field, also accept snippet employment context.
   const headlineMatch = rawCompany ? fuzzyCompanyMatch(rawCompany.trim(), companyName) : false;
-  if (headlineMatch && !rawTitle && !companyInEmploymentContext(result.snippet, companyName)) return null;
   const snippetCurrentMatch =
     !headlineMatch &&
     !rawTitle && // only when Format 3 (no title parsed)
