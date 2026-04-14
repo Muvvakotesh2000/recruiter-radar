@@ -309,7 +309,7 @@ function extractFromUrlPattern(url: string): ParsedJobData {
     }
 
     const queryTitle = firstText(params.get("jobTitle"), params.get("title"), params.get("gh_jid"));
-    const companyFromSubdomain = extractCompanyFromHost(host);
+    const companyFromSubdomain = extractCompanyFromOwnedJobHost(url) ?? extractCompanyFromHost(host);
     const slugTitle = extractLikelyTitleFromPath(path);
 
     return withUrlData(companyFromSubdomain, queryTitle && !/^\d+$/.test(queryTitle) ? queryTitle : slugTitle);
@@ -384,11 +384,12 @@ function applyGenericPageCorrections(job: ParsedJobData, html: string, finalUrl:
     meta.get("twitter:description") ??
     meta.get("description") ??
     "";
-  const location = job.location ?? extractLocationFromText(title) ?? extractLocationFromText(description);
+  const location = job.location ?? extractLocationFromText(title) ?? extractLocationFromText(description) ?? extractLocationFromText(html);
   const company =
     job.company_name && !isKnownJobBoardCompany(job.company_name, finalUrl)
       ? job.company_name
-      : extractEmployerFromDescription(description);
+      : extractEmployerFromDescription(description) ??
+        extractCompanyFromOwnedJobHost(finalUrl);
   const jobTitle = stripLocationFromTitle(job.job_title, location);
 
   return normalizeParsedJob({
@@ -516,6 +517,29 @@ function isKnownJobBoardCompany(value: string | null | undefined, url?: string):
     return Boolean(hostRoot && normalized === hostRoot && KNOWN_BOARD_SUFFIXES.some((suffix) => host.includes(suffix)));
   } catch {
     return false;
+  }
+}
+
+function extractCompanyFromOwnedJobHost(url: string): string | null {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+    const parts = host.split(".");
+    if (parts.length < 2) return null;
+
+    const root = parts[0];
+    const second = parts[1];
+    const genericRoots = new Set(["jobs", "careers", "apply", "boards", "recruiting", "www"]);
+    if (genericRoots.has(root)) return null;
+
+    const companyOwned =
+      second === "jobs" ||
+      second === "careers" ||
+      host.endsWith(".jobs") ||
+      host.endsWith(".careers");
+
+    return companyOwned ? humanizeSlug(root) : null;
+  } catch {
+    return null;
   }
 }
 
@@ -776,6 +800,8 @@ function extractJobLocation(value: unknown): string | null {
 function extractLocationFromText(text: string): string | null {
   const cleaned = normalizeText(text);
   const patterns = [
+    /\b(?:jobLocation|dimension8|location)\s*["':=]+\s*"?((?:USA|US|United States),\s*[A-Z]{2},\s*[A-Z][A-Za-z .'-]+)\b/i,
+    /\b((?:USA|US|United States),\s*[A-Z]{2},\s*[A-Z][A-Za-z .'-]+)\b/i,
     /\b(?:location|office|based in)\s*[:\-]\s*([A-Z][A-Za-z .'-]+,\s*(?:[A-Z]{2}|[A-Za-z .'-]+))(?:\b|[|.;])/i,
     /\b([A-Z][A-Za-z .'-]+,\s*(?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|IA|ID|IL|IN|KS|KY|LA|MA|MD|ME|MI|MN|MO|MS|MT|NC|ND|NE|NH|NJ|NM|NV|NY|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VA|VT|WA|WI|WV|WY))\b/,
     /\b([A-Z][A-Za-z .'-]+,\s*(?:United States|USA|Canada|India|United Kingdom|UK|Germany|France|Ireland|Australia))\b/i,
@@ -874,7 +900,16 @@ function cleanLocation(value: string | null | undefined): string | null {
     .replace(/^[,|.\-\s]+|[,|.\-\s]+$/g, "")
     .trim();
 
-  return formatLocationCasing(cleaned) || null;
+  return normalizeStructuredLocation(cleaned) || formatLocationCasing(cleaned) || null;
+}
+
+function normalizeStructuredLocation(value: string): string | null {
+  const countryStateCity = value.match(/^(?:USA|US|United States),\s*([A-Z]{2}),\s*([A-Z][A-Za-z .'-]+)$/i);
+  if (countryStateCity) {
+    return `${toTitleCase(countryStateCity[2])}, ${countryStateCity[1].toUpperCase()}`;
+  }
+
+  return null;
 }
 
 function formatLocationCasing(value: string): string {
