@@ -652,15 +652,17 @@ function finaliseParsedJob(
 }
 
 function chooseBestCompany(values: Array<string | null | undefined>, finalUrl: string): string | null {
+  const candidates: string[] = [];
+
   for (const value of values) {
     const company = cleanCompanyName(value);
     if (!company) continue;
     if (isKnownJobBoardCompany(company, finalUrl)) continue;
     if (isSuspiciousCompany(company)) continue;
-    return company;
+    candidates.push(company);
   }
 
-  return null;
+  return chooseMostRepeated(candidates, normForCompare);
 }
 
 function chooseBestTitle(
@@ -668,30 +670,57 @@ function chooseBestTitle(
   company: string | null,
   location: string | null,
 ): string | null {
+  const candidates: string[] = [];
+
   for (const value of values) {
     const title = stripLocationFromTitle(cleanJobTitle(value), location);
     if (!title) continue;
     if (isSuspiciousJobTitle(title, company)) continue;
-    return title;
+    candidates.push(title);
   }
 
-  return null;
+  return chooseMostRepeated(candidates, normForCompare);
 }
 
 function chooseBestLocation(values: Array<string | null | undefined>): string | null {
-  let remote: string | null = null;
+  const candidates: string[] = [];
 
   for (const value of values) {
     const location = cleanLocation(value);
     if (!location) continue;
-    if (isRemoteText(location)) {
-      remote ??= "Remote";
-      continue;
+    if (isRemoteText(location)) candidates.push("Remote");
+    else if (!isSuspiciousLocation(location)) {
+      candidates.push(location);
+      if (isPreciseCityStateLocation(location)) candidates.push(location);
     }
-    if (!isSuspiciousLocation(location)) return location;
   }
 
-  return remote;
+  return chooseMostRepeated(candidates, normForCompare);
+}
+
+function isPreciseCityStateLocation(value: string): boolean {
+  return /^[A-Z][A-Za-z .'-]+,\s*[A-Z]{2}(?:\b|,)/.test(value);
+}
+
+function chooseMostRepeated(values: string[], normalizeKey: (value: string) => string): string | null {
+  const votes = new Map<string, { value: string; count: number; firstIndex: number }>();
+
+  values.forEach((value, index) => {
+    const key = normalizeKey(value);
+    if (!key) return;
+
+    const existing = votes.get(key);
+    if (existing) {
+      existing.count += 1;
+      return;
+    }
+
+    votes.set(key, { value, count: 1, firstIndex: index });
+  });
+
+  return Array.from(votes.values())
+    .sort((a, b) => b.count - a.count || a.firstIndex - b.firstIndex)[0]
+    ?.value ?? null;
 }
 
 function applyGenericPageCorrections(job: ParsedJobData, html: string, finalUrl: string): ParsedJobData {
@@ -869,6 +898,7 @@ function isSuspiciousCompany(value: string): boolean {
   return (
     value.length < 2 ||
     value.length > 90 ||
+    /^[a-z]/.test(value) ||
     /\b(apply|login|sign in|privacy|terms|job details|career programs|resources)\b/i.test(value) ||
     /\.(com|org|net|io|jobs|careers)\b/i.test(value) ||
     /^\d+$/.test(value)
