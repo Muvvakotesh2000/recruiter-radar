@@ -87,19 +87,6 @@ const NOISE_TERMS = [
 ];
 
 const COMPANY_PAGE_WORDS = /\b(company|careers|jobs|job|hiring|profile|overview|about|inc|llc|ltd|corp|corporation|group|team)\b/i;
-const AMBIGUOUS_COMPANY_WORDS = new Set([
-  "current",
-  "remote",
-  "box",
-  "square",
-  "wise",
-  "affirm",
-  "toast",
-  "ramp",
-  "bench",
-  "pilot",
-  "scale",
-]);
 
 function normText(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -164,22 +151,6 @@ export function fuzzyCompanyMatch(resultCompany: string, inputCompany: string): 
   return new RegExp(`(?:^| )${escaped}(?= |$)`).test(longer);
 }
 
-function isAmbiguousCompanyName(companyName: string): boolean {
-  const normalized = companyName.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return AMBIGUOUS_COMPANY_WORDS.has(normalized);
-}
-
-function hasCompanyMention(text: string, companyName: string): boolean {
-  const companyNorm = companyName.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const textNorm = text.toLowerCase().replace(/[^a-z0-9\s]/g, "");
-
-  if (!isAmbiguousCompanyName(companyName)) {
-    return text.toLowerCase().includes(companyName.toLowerCase()) || textNorm.includes(companyNorm);
-  }
-
-  return companyInEmploymentContext(text, companyName);
-}
-
 /** Words that indicate a non-employment relationship with the company */
 const CERT_WORDS = /\b(certified|certification|certificate|credential|badge|course|training|bootcamp|program|exam|assessment|licensed|accredited|issued by|awarded by|completion)\b/i;
 
@@ -233,12 +204,6 @@ export function looksLikeFormerEmployee(title: string, snippet: string, companyN
  * count as the person working at Google / AWS.
  */
 export function companyInEmploymentContext(snippet: string, companyName: string): boolean {
-  const escapedCompany = companyName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-  if (isAmbiguousCompanyName(companyName)) {
-    return new RegExp(`(?:\\bat\\b|@|Â·|â€¢|\\||[-â€“â€”])\\s*${escapedCompany}\\b`, "i").test(snippet);
-  }
-
   const s = snippet.toLowerCase();
   const cn = companyName.toLowerCase();
   const idx = s.indexOf(cn);
@@ -669,10 +634,14 @@ export function filterResultsBySignal(
   results: SearchResult[],
   companyName: string
 ): SearchResult[] {
+  const companyNorm = companyName.toLowerCase().replace(/[^a-z0-9]/g, "");
   return results.filter((r) => {
     const text = `${r.title} ${r.snippet}`.toLowerCase();
+    const textNorm = text.replace(/[^a-z0-9\s]/g, "");
 
-    if (!hasCompanyMention(`${r.title} ${r.snippet}`, companyName)) return false;
+    const hasCompany =
+      text.includes(companyName.toLowerCase()) || textNorm.includes(companyNorm);
+    if (!hasCompany) return false;
 
     const isProfileURL =
       r.url.includes("linkedin.com/in/") ||
