@@ -57,8 +57,13 @@ export async function parseJobUrl(url: string): Promise<ParsedJobData> {
   ].filter(hasUsefulData);
 
   const bestCandidate = rankCandidates(candidates)[0] ?? EMPTY_JOB;
-  const merged = applyBoardSpecificCorrections(
-    mergeWithUrlData(bestCandidate, extractFromUrlPattern(finalUrl), fromUrl),
+  const merged = finaliseParsedJob(
+    applyBoardSpecificCorrections(
+      mergeWithUrlData(bestCandidate, extractFromUrlPattern(finalUrl), fromUrl),
+      html,
+      finalUrl,
+    ),
+    candidates,
     html,
     finalUrl,
   );
@@ -372,6 +377,105 @@ function applyBoardSpecificCorrections(job: ParsedJobData, html: string, finalUr
   });
 }
 
+function finaliseParsedJob(
+  job: ParsedJobData,
+  candidates: ParsedJobData[],
+  html: string,
+  finalUrl: string,
+): ParsedJobData {
+  const meta = getMetaMap(html);
+  const titleText =
+    meta.get("og:title") ??
+    meta.get("twitter:title") ??
+    extractTitleTag(html) ??
+    "";
+  const description =
+    meta.get("og:description") ??
+    meta.get("twitter:description") ??
+    meta.get("description") ??
+    "";
+
+  const company = chooseBestCompany([
+    job.company_name,
+    ...candidates.map((candidate) => candidate.company_name),
+    extractEmployerFromDescription(description),
+    extractCompanyFromVisibleHtml(html),
+    extractCompanyFromOwnedJobHost(finalUrl),
+  ], finalUrl);
+  const location = chooseBestLocation([
+    job.location,
+    ...candidates.map((candidate) => candidate.location),
+    extractLocationFromText(titleText),
+    extractLocationFromText(description),
+    extractLocationFromText(html),
+  ]);
+  const title = chooseBestTitle([
+    job.job_title,
+    ...candidates.map((candidate) => candidate.job_title),
+    parseTitleAndCompany(titleText, null).title,
+    extractTitleFromVisibleHtml(html),
+    extractTitleFromUrl(finalUrl),
+  ], company, location);
+  const physicalLocation = location && !isRemoteText(location) ? location : null;
+  const remote = !physicalLocation && (
+    job.is_remote ||
+    candidates.some((candidate) => candidate.is_remote) ||
+    isRemoteText(`${titleText} ${description}`)
+  );
+
+  return normalizeParsedJob({
+    ...job,
+    company_name: company,
+    job_title: title,
+    location: remote ? "Remote" : physicalLocation,
+    is_remote: remote,
+    confidence: bestConfidence(job.confidence, company && title && (physicalLocation || remote) ? "high" : "medium"),
+  });
+}
+
+function chooseBestCompany(values: Array<string | null | undefined>, finalUrl: string): string | null {
+  for (const value of values) {
+    const company = cleanCompanyName(value);
+    if (!company) continue;
+    if (isKnownJobBoardCompany(company, finalUrl)) continue;
+    if (isSuspiciousCompany(company)) continue;
+    return company;
+  }
+
+  return null;
+}
+
+function chooseBestTitle(
+  values: Array<string | null | undefined>,
+  company: string | null,
+  location: string | null,
+): string | null {
+  for (const value of values) {
+    const title = stripLocationFromTitle(cleanJobTitle(value), location);
+    if (!title) continue;
+    if (isSuspiciousJobTitle(title, company)) continue;
+    return title;
+  }
+
+  return null;
+}
+
+function chooseBestLocation(values: Array<string | null | undefined>): string | null {
+  let remote: string | null = null;
+
+  for (const value of values) {
+    const location = cleanLocation(value);
+    if (!location) continue;
+    if (isRemoteText(location)) {
+      remote ??= "Remote";
+      continue;
+    }
+    if (!isSuspiciousLocation(location)) return location;
+  }
+
+  return remote;
+}
+
 function applyGenericPageCorrections(job: ParsedJobData, html: string, finalUrl: string): ParsedJobData {
   const meta = getMetaMap(html);
   const title =
@@ -418,6 +522,54 @@ function extractEmployerFromDescription(description: string): string | null {
   }
 
   return null;
+}
+
+function extractCompanyFromVisibleHtml(html: string): string | null {
+  const text = htmlToText(html).slice(0, 250_000);
+  const patterns = [
+    /\b(?:Company|Employer|Organization|Agency|Department)\s*[:\-]\s*([A-Z][A-Za-z0-9&.' -]{2,80})(?:\b|[|.;])/i,
+    /\bJob posted by\s+([A-Z][A-Za-z0-9&.' -]{2,80})(?:\b|[|.;])/i,
+    /\bHiring organization\s*[:\-]\s*([A-Z][A-Za-z0-9&.' -]{2,80})(?:\b|[|.;])/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const company = cleanCompanyName(match?.[1] ?? null);
+    if (company && !isGenericCompanyPhrase(company)) return company;
+  }
+
+  return null;
+}
+
+function extractTitleFromVisibleHtml(html: string): string | null {
+  const heading = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1];
+  const fromHeading = cleanJobTitle(htmlToText(heading ?? ""));
+  if (fromHeading) return fromHeading;
+
+  const text = htmlToText(html).slice(0, 120_000);
+  const patterns = [
+    /\b(?:Job title|Position|Role)\s*[:\-]\s*([A-Z][A-Za-z0-9/&+.,'() -]{2,120})(?:\b|[|.;])/i,
+    /\bNow hiring\s*[:\-]\s*([A-Z][A-Za-z0-9/&+.,'() -]{2,120})(?:\b|[|.;])/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const title = cleanJobTitle(match?.[1] ?? null);
+    if (title) return title;
+  }
+
+  return null;
+}
+
+function htmlToText(value: string): string {
+  return normalizeText(
+    value
+      .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+      .replace(/<br\s*\/?>/gi, " ")
+      .replace(/<\/(?:p|div|li|h1|h2|h3|tr)>/gi, ". ")
+      .replace(/<[^>]+>/g, " "),
+  );
 }
 
 function stripLocationFromTitle(title: string | null, location: string | null): string | null {
@@ -482,6 +634,39 @@ function isGenericCompanyPhrase(value: string): boolean {
   return /^(the opportunity|description|job responsibilities|minimum requirements|why join us)$/i.test(value);
 }
 
+function isSuspiciousCompany(value: string): boolean {
+  return (
+    value.length < 2 ||
+    value.length > 90 ||
+    /\b(apply|login|sign in|privacy|terms|job details|career programs|resources)\b/i.test(value) ||
+    /\.(com|org|net|io|jobs|careers)\b/i.test(value) ||
+    /^\d+$/.test(value)
+  );
+}
+
+function isSuspiciousJobTitle(value: string, company: string | null): boolean {
+  return (
+    value.length < 2 ||
+    value.length > 160 ||
+    (company ? normForCompare(value) === normForCompare(company) : false) ||
+    /\b(apply now|job details|privacy|terms|sign in|login|all jobs|job search)\b/i.test(value) ||
+    /^job\s*id\b/i.test(value)
+  );
+}
+
+function isSuspiciousLocation(value: string): boolean {
+  return (
+    value.length < 3 ||
+    value.length > 80 ||
+    /\b(salary|compensation|benefits|apply|posted|category|department|description|responsibilities)\b/i.test(value) ||
+    /\d{4,}/.test(value)
+  );
+}
+
+function normForCompare(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 function isKnownJobBoardCompany(value: string | null | undefined, url?: string): boolean {
   const normalized = normalizeText(value ?? "")
     .toLowerCase()
@@ -512,6 +697,9 @@ function isKnownJobBoardCompany(value: string | null | undefined, url?: string):
 
   if (!url) return false;
   try {
+    const ownedHostCompany = extractCompanyFromOwnedJobHost(url);
+    if (ownedHostCompany && normalized === normForCompare(ownedHostCompany)) return false;
+
     const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
     const hostRoot = host.split(".")[0]?.replace(/[^a-z0-9]+/g, "");
     return Boolean(hostRoot && normalized === hostRoot && KNOWN_BOARD_SUFFIXES.some((suffix) => host.includes(suffix)));
@@ -862,6 +1050,14 @@ function extractLikelyTitleFromPath(path: string): string | null {
     .replace(/(?:req|job|jr)-?\d+/gi, "");
 }
 
+function extractTitleFromUrl(url: string): string | null {
+  try {
+    return extractLikelyTitleFromPath(decodeURIComponent(new URL(url).pathname));
+  } catch {
+    return null;
+  }
+}
+
 function normalizeParsedJob(job: ParsedJobData): ParsedJobData {
   const isRemote = job.is_remote || isRemoteText(job.location ?? "");
 
@@ -879,6 +1075,7 @@ function cleanCompanyName(value: string | null | undefined): string | null {
   const cleaned = normalizeText(value ?? "")
     .replace(/\b(careers|jobs|job board|greenhouse|lever|workday|ashby)\b/gi, "")
     .replace(/\s+[-|]\s+.*$/g, "")
+    .replace(/^[,|.\-\s]+|[,|.\-\s]+$/g, "")
     .trim();
 
   if (isKnownJobBoardCompany(cleaned)) return null;
