@@ -18,7 +18,7 @@ const EMPTY_JOB: ParsedJobData = {
   confidence: "low",
 };
 
-const FETCH_TIMEOUT_MS = 10_000;
+const FETCH_TIMEOUT_MS = 20_000;
 const MAX_HTML_CHARS = 1_500_000;
 
 const KNOWN_BOARD_SUFFIXES = [
@@ -50,11 +50,14 @@ export async function parseJobUrl(url: string): Promise<ParsedJobData> {
   }
 
   const { html, finalUrl } = fetched;
+  const boardApiCandidate = await extractBoardApiCandidate(finalUrl);
   const candidates = [
+    boardApiCandidate,
     ...extractJsonLdCandidates(html),
     ...extractEmbeddedJsonCandidates(html),
+    extractPlainTextCandidate(html, finalUrl),
     extractMetaCandidate(html),
-  ].filter(hasUsefulData);
+  ].filter((candidate): candidate is ParsedJobData => candidate !== null && hasUsefulData(candidate));
 
   const bestCandidate = rankCandidates(candidates)[0] ?? EMPTY_JOB;
   const merged = finaliseParsedJob(
@@ -76,8 +79,10 @@ export async function parseJobUrl(url: string): Promise<ParsedJobData> {
 }
 
 async function fetchJobHtml(url: string): Promise<{ html: string; finalUrl: string } | null> {
+  const readableUrl = getReadableJobPageUrl(url);
+
   try {
-    const response = await fetch(url, {
+    const response = await fetch(readableUrl, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
@@ -90,16 +95,60 @@ async function fetchJobHtml(url: string): Promise<{ html: string; finalUrl: stri
       cache: "no-store",
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) return fetchReaderJobPage(readableUrl);
 
     const contentType = response.headers.get("content-type") ?? "";
-    if (contentType && !contentType.toLowerCase().includes("html")) return null;
+    if (contentType && !contentType.toLowerCase().includes("html")) return fetchReaderJobPage(readableUrl);
 
     const html = (await response.text()).slice(0, MAX_HTML_CHARS);
-    return { html, finalUrl: response.url || url };
+    if (isBotChallengePage(html)) return fetchReaderJobPage(readableUrl);
+    return { html, finalUrl: response.url || readableUrl };
+  } catch {
+    return fetchReaderJobPage(readableUrl);
+  }
+}
+
+function getReadableJobPageUrl(url: string): string {
+  try {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.hostname.toLowerCase().includes("lever.co")) {
+      parsedUrl.pathname = parsedUrl.pathname.replace(/\/apply\/?$/i, "");
+      parsedUrl.search = "";
+      parsedUrl.hash = "";
+      return parsedUrl.toString();
+    }
+  } catch {
+    return url;
+  }
+
+  return url;
+}
+
+async function fetchReaderJobPage(url: string): Promise<{ html: string; finalUrl: string } | null> {
+  try {
+    const readerUrl = `https://r.jina.ai/http://r.jina.ai/http://${url}`;
+    const response = await fetch(readerUrl, {
+      headers: {
+        Accept: "text/plain, text/markdown, */*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+      },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      cache: "no-store",
+    });
+
+    if (!response.ok) return null;
+
+    const html = (await response.text()).slice(0, MAX_HTML_CHARS);
+    if (!html || isBotChallengePage(html)) return null;
+    return { html, finalUrl: url };
   } catch {
     return null;
   }
+}
+
+function isBotChallengePage(html: string): boolean {
+  return /\b(Just a moment|Enable JavaScript and cookies|cf_chl_|challenge-platform|checking your browser)\b/i.test(html);
 }
 
 function extractJsonLdCandidates(html: string): ParsedJobData[] {
@@ -172,6 +221,43 @@ function extractGreenhouseRemixJob(script: string): ParsedJobData | null {
   });
 }
 
+function extractPlainTextCandidate(text: string, finalUrl: string): ParsedJobData | null {
+  const titleLine = text.match(/^Title:\s*(.+)$/im)?.[1]?.replace(/\s+in\s*$/i, "") ?? null;
+  const locationLine =
+    text.match(/^Location:\s*(.+)$/im)?.[1] ??
+    text.match(/^\s*([A-Z][A-Za-z .'-]+(?:,\s*[A-Z]{2})?(?:,\s*[A-Za-z .'-]+)?\s*\(Remote\)|Remote)\s*$/im)?.[1] ??
+    null;
+  const remote = isRemoteText(locationLine ?? "");
+  const location = remote ? "Remote" : cleanLocation(locationLine) ?? extractLocationFromText(text);
+  const fromUrl = extractFromUrlPattern(finalUrl);
+  const titleMeta = new Map<string, string>([["og:url", finalUrl]]);
+  if (locationLine) {
+    titleMeta.set("twitter:label1", "Location");
+    titleMeta.set("twitter:data1", locationLine);
+  }
+  const parsedTitle = parseTitleAndCompany(titleLine, fromUrl.company_name, titleMeta);
+  const title = stripLocationFromTitle(
+    parsedTitle.title ?? fromUrl.job_title,
+    location,
+  );
+  const company =
+    fromUrl.company_name ??
+    parsedTitle.company ??
+    extractCompanyFromOwnedJobHost(finalUrl) ??
+    extractEmployerFromDescription(text);
+
+  if (!title && !company && !location && !remote) return null;
+
+  return normalizeParsedJob({
+    company_name: company,
+    job_title: title,
+    location,
+    is_remote: remote,
+    source: "embedded-json",
+    confidence: title && (location || remote) ? "high" : "medium",
+  });
+}
+
 function readJsonStringField(text: string, key: string): string | null {
   const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = new RegExp(`"${escapedKey}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`).exec(text);
@@ -198,8 +284,9 @@ function extractMetaCandidate(html: string): ParsedJobData {
   const siteName = cleanCompanyName(meta.get("og:site_name") ?? meta.get("application-name") ?? null);
 
   const linkedInTitle = parseLinkedInTitle(title);
-  const parsedTitle = linkedInTitle ?? parseTitleAndCompany(title, siteName);
+  const parsedTitle = linkedInTitle ?? parseTitleAndCompany(title, siteName, meta);
   const location =
+    extractMetaLabelValue(meta, "location") ??
     extractLocationFromText(description) ??
     linkedInTitle?.location ??
     extractLocationFromText(title ?? "");
@@ -235,9 +322,11 @@ function extractFromJobPosting(item: UnknownRecord, source: ParsedJobData["sourc
 
 function extractFromGenericJobRecord(item: UnknownRecord): ParsedJobData {
   const title = firstText(
+    item.Title,
     item.title,
     item.jobTitle,
     item.job_title,
+    item.JobTitle,
     item.name,
     item.position,
     item.positionTitle,
@@ -247,9 +336,13 @@ function extractFromGenericJobRecord(item: UnknownRecord): ParsedJobData {
     item.companyName,
     item.company_name,
     item.organization,
+    item.Organization,
+    item.BusinessUnit,
+    item.LegalEmployer,
     item.departmentName,
   ));
   const location = firstText(
+    item.PrimaryLocation,
     item.location,
     item.locationName,
     item.jobLocation,
@@ -258,7 +351,7 @@ function extractFromGenericJobRecord(item: UnknownRecord): ParsedJobData {
     item.primaryLocation,
     item.office,
   );
-  const remote = isRemoteText(`${firstText(item.workplaceType, item.remote, item.locationType) ?? ""} ${location ?? ""}`);
+  const remote = isRemoteText(`${firstText(item.WorkplaceType, item.WorkplaceTypeCode, item.workplaceType, item.remote, item.locationType) ?? ""} ${location ?? ""}`);
 
   return normalizeParsedJob({
     company_name: company,
@@ -268,6 +361,75 @@ function extractFromGenericJobRecord(item: UnknownRecord): ParsedJobData {
     source: "embedded-json",
     confidence: company && title ? "medium" : "low",
   });
+}
+
+async function extractBoardApiCandidate(url: string): Promise<ParsedJobData | null> {
+  return extractOracleHcmCandidate(url);
+}
+
+async function extractOracleHcmCandidate(url: string): Promise<ParsedJobData | null> {
+  const context = getOracleHcmContext(url);
+  if (!context) return null;
+
+  const apiUrl = `${context.origin}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails?finder=ById;Id=${encodeURIComponent(context.jobId)}&onlyData=true`;
+  const payload = await fetchJson(apiUrl);
+  if (!isRecord(payload) || !Array.isArray(payload.items) || !isRecord(payload.items[0])) {
+    return null;
+  }
+
+  const item = payload.items[0];
+  const description = htmlToText(firstText(item.ExternalDescriptionStr, item.ShortDescriptionStr) ?? "");
+  const title = firstText(item.Title, item.JobTitle, item.OtherRequisitionTitle);
+  const company =
+    cleanCompanyName(firstText(item.LegalEmployer, item.BusinessUnit, item.Organization)) ??
+    extractEmployerFromDescription(description);
+  const workplace = firstText(item.WorkplaceType, item.WorkplaceTypeCode);
+  const primaryLocation = firstText(item.PrimaryLocation, item.PrimaryLocationCountry);
+  const remote = isRemoteText(`${workplace ?? ""} ${description}`);
+  const location = remote ? "Remote" : cleanLocation(primaryLocation);
+
+  return normalizeParsedJob({
+    company_name: company,
+    job_title: title,
+    location,
+    is_remote: remote,
+    source: "embedded-json",
+    confidence: title && (company || location || remote) ? "high" : "medium",
+  });
+}
+
+function getOracleHcmContext(url: string): { origin: string; jobId: string } | null {
+  try {
+    const parsedUrl = new URL(url);
+    if (!parsedUrl.hostname.toLowerCase().includes("oraclecloud.com")) return null;
+
+    const match = parsedUrl.pathname.match(/\/hcmUI\/CandidateExperience\/.+?\/job\/([^/?#]+)/i);
+    if (!match?.[1]) return null;
+
+    return { origin: parsedUrl.origin, jobId: decodeURIComponent(match[1]) };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchJson(url: string): Promise<unknown | null> {
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json, text/plain;q=0.9, */*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+      },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      cache: "no-store",
+    });
+
+    if (!response.ok) return null;
+
+    return JSON.parse(await response.text());
+  } catch {
+    return null;
+  }
 }
 
 function extractFromUrlPattern(url: string): ParsedJobData {
@@ -412,7 +574,7 @@ function finaliseParsedJob(
   const title = chooseBestTitle([
     job.job_title,
     ...candidates.map((candidate) => candidate.job_title),
-    parseTitleAndCompany(titleText, null).title,
+    parseTitleAndCompany(titleText, null, meta).title,
     extractTitleFromVisibleHtml(html),
     extractTitleFromUrl(finalUrl),
   ], company, location);
@@ -508,6 +670,7 @@ function applyGenericPageCorrections(job: ParsedJobData, html: string, finalUrl:
 function extractEmployerFromDescription(description: string): string | null {
   const cleaned = normalizeText(description);
   const patterns = [
+    /\bAt\s+([A-Z][A-Za-z0-9&.' -]+?),\s+(?:we|we're|our|you|the)\b/,
     /\bJoin (?:our|the) team and become a part of\s+([A-Z][A-Za-z0-9&.' -]+)\s+(?:community|team|organization|department)\b/i,
     /\bJoin (?:our|the) team at\s+([A-Z][A-Za-z0-9&.' -]+?)(?:[.;]|$)/i,
     /\bbecome a part of\s+([A-Z][A-Za-z0-9&.' -]+)\s+(?:community|team|organization|department)\b/i,
@@ -659,6 +822,9 @@ function isSuspiciousLocation(value: string): boolean {
     value.length < 3 ||
     value.length > 80 ||
     /\b(salary|compensation|benefits|apply|posted|category|department|description|responsibilities)\b/i.test(value) ||
+    /\b(input|textarea|select|application-question|location-input|eeo-survey)\b/i.test(value) ||
+    /[{}<>;]/.test(value) ||
+    /(?:^|,)\s*\.[a-z][\w-]*/i.test(value) ||
     /\d{4,}/.test(value)
   );
 }
@@ -890,11 +1056,32 @@ function getMetaMap(html: string): Map<string, string> {
   while ((match = metaRe.exec(html)) !== null) {
     const attrs = parseAttributes(match[0]);
     const key = normalizeText(attrs.property ?? attrs.name ?? attrs.itemprop ?? "").toLowerCase();
-    const content = attrs.content;
+    const content = attrs.content ?? attrs.value;
     if (key && content && !meta.has(key)) meta.set(key, decodeHtmlEntities(content));
   }
 
   return meta;
+}
+
+function extractMetaLabelValue(meta: Map<string, string>, label: string): string | null {
+  const wanted = label.toLowerCase();
+
+  for (let index = 1; index <= 8; index += 1) {
+    const metaLabel =
+      meta.get(`twitter:label${index}`) ??
+      meta.get(`og:label${index}`) ??
+      meta.get(`label${index}`);
+    const metaValue =
+      meta.get(`twitter:data${index}`) ??
+      meta.get(`og:data${index}`) ??
+      meta.get(`data${index}`);
+
+    if (normalizeText(metaLabel ?? "").toLowerCase() === wanted) {
+      return normalizeText(metaValue ?? "") || null;
+    }
+  }
+
+  return null;
 }
 
 function parseAttributes(tag: string): Record<string, string> {
@@ -930,12 +1117,26 @@ function parseLinkedInTitle(rawTitle: string | null): { title: string | null; co
   };
 }
 
-function parseTitleAndCompany(rawTitle: string | null, fallbackCompany: string | null): { title: string | null; company: string | null } {
+function parseTitleAndCompany(
+  rawTitle: string | null,
+  fallbackCompany: string | null,
+  meta?: Map<string, string>,
+): { title: string | null; company: string | null } {
   if (!rawTitle) return { title: null, company: fallbackCompany };
 
   const cleaned = normalizeText(rawTitle)
     .replace(/\b(apply now|careers|jobs|job details|job openings)\b/gi, "")
     .trim();
+
+  if (meta && looksLikeCompanyFirstTitle(rawTitle, meta)) {
+    const parts = cleaned.split(/\s+[-\u2013\u2014]\s+/).map((part) => part.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      return {
+        company: cleanCompanyName(parts[0]),
+        title: cleanJobTitle(parts.slice(1).join(" - ")),
+      };
+    }
+  }
 
   const separators = [
     /\s+at\s+/i,
@@ -955,6 +1156,20 @@ function parseTitleAndCompany(rawTitle: string | null, fallbackCompany: string |
   }
 
   return { title: cleanJobTitle(cleaned), company: fallbackCompany };
+}
+
+function looksLikeCompanyFirstTitle(rawTitle: string, meta: Map<string, string>): boolean {
+  const title = normalizeText(rawTitle);
+  if (!/\s+[-\u2013\u2014]\s+/.test(title)) return false;
+
+  const url = meta.get("og:url") ?? meta.get("twitter:url") ?? "";
+  const hasStructuredJobMeta = Boolean(
+    extractMetaLabelValue(meta, "location") ||
+    extractMetaLabelValue(meta, "team") ||
+    extractMetaLabelValue(meta, "department"),
+  );
+
+  return /lever\.co/i.test(url) || hasStructuredJobMeta;
 }
 
 function extractOrganizationName(value: unknown): string | null {
@@ -1030,7 +1245,10 @@ function extractCompanyFromHost(host: string): string | null {
 
   const first = parts[0];
   const second = parts[1];
-  if (["jobs", "careers", "boards", "apply", "recruiting"].includes(first)) return second;
+  if (["jobs", "careers", "boards", "apply", "recruiting"].includes(first)) {
+    if (second === "employinc") return "Employ";
+    return second;
+  }
   if (KNOWN_BOARD_SUFFIXES.some((suffix) => host.includes(suffix))) return null;
   return first;
 }
@@ -1046,6 +1264,7 @@ function extractLikelyTitleFromPath(path: string): string | null {
   if (!segment) return null;
 
   return segment
+    .replace(/^\d+[-_]+/g, "")
     .replace(/-\d+$/g, "")
     .replace(/(?:req|job|jr)-?\d+/gi, "");
 }
@@ -1073,7 +1292,7 @@ function normalizeParsedJob(job: ParsedJobData): ParsedJobData {
 
 function cleanCompanyName(value: string | null | undefined): string | null {
   const cleaned = normalizeText(value ?? "")
-    .replace(/\b(careers|jobs|job board|greenhouse|lever|workday|ashby)\b/gi, "")
+    .replace(/\b(career site|careers|career|jobs|job board|greenhouse|lever|workday|ashby|site)\b/gi, "")
     .replace(/\s+[-|]\s+.*$/g, "")
     .replace(/^[,|.\-\s]+|[,|.\-\s]+$/g, "")
     .trim();
@@ -1096,6 +1315,8 @@ function cleanLocation(value: string | null | undefined): string | null {
     .replace(/\b(full[- ]time|part[- ]time|contract|internship|apply now)\b/gi, "")
     .replace(/^[,|.\-\s]+|[,|.\-\s]+$/g, "")
     .trim();
+
+  if (!cleaned || isSuspiciousLocation(cleaned)) return null;
 
   return normalizeStructuredLocation(cleaned) || formatLocationCasing(cleaned) || null;
 }
