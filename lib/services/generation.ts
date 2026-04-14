@@ -368,15 +368,10 @@ export async function runGeneration(
       console.log(`[Generation] Phase 4.7 — ${mgmtResults.length} management results`);
 
       // Filter: must mention the company and must be a LinkedIn profile.
-      const companyNorm = input.company_name.toLowerCase().replace(/[^a-z0-9]/g, "");
       const mgmtFiltered = mgmtResults.filter((r) => {
         const text = `${r.title} ${r.snippet}`.toLowerCase();
-        const textNorm = text.replace(/[^a-z0-9\s]/g, "");
-        const hasCompany =
-          text.includes(input.company_name.toLowerCase()) ||
-          textNorm.includes(companyNorm);
         return (
-          hasCompany &&
+          companyInEmploymentContext(`${r.title} ${r.snippet}`, input.company_name) &&
           r.url.includes("linkedin.com/in/") &&
           !hasRecruiterSignal(text) &&
           !looksLikeFormerEmployee(r.title, r.snippet, input.company_name)
