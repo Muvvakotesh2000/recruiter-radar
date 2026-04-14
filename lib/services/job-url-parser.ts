@@ -33,6 +33,9 @@ const KNOWN_BOARD_SUFFIXES = [
   "icims",
   "linkedin",
   "indeed",
+  "governmentjobs",
+  "schooljobs",
+  "neogov",
   "careers",
   "jobs",
 ];
@@ -341,7 +344,9 @@ function mergeWithUrlData(...items: ParsedJobData[]): ParsedJobData {
 }
 
 function applyBoardSpecificCorrections(job: ParsedJobData, html: string, finalUrl: string): ParsedJobData {
-  if (!isWorkdayUrl(finalUrl)) return job;
+  const genericJob = applyGenericPageCorrections(job, html, finalUrl);
+
+  if (!isWorkdayUrl(finalUrl)) return genericJob;
 
   const meta = getMetaMap(html);
   const description =
@@ -350,21 +355,77 @@ function applyBoardSpecificCorrections(job: ParsedJobData, html: string, finalUr
     meta.get("description") ??
     "";
   const workdayContext = extractWorkdayContext(html);
-  const workdayLocation = extractWorkdayLocation(finalUrl, description, job.location);
+  const workdayLocation = extractWorkdayLocation(finalUrl, description, genericJob.location);
   const isHybridOrOffice = isHybridOrOfficeText(`${description} ${workdayLocation ?? ""}`);
-  const isRemote = !isHybridOrOffice && isRemoteText(`${job.is_remote ? "remote" : ""} ${job.location ?? ""}`);
+  const isRemote = !isHybridOrOffice && isRemoteText(`${genericJob.is_remote ? "remote" : ""} ${genericJob.location ?? ""}`);
   const company =
     extractCompanyFromWorkdayText(description, workdayContext.siteId) ??
     cleanCompanyName(workdayContext.tenant) ??
-    job.company_name;
+    genericJob.company_name;
+
+  return normalizeParsedJob({
+    ...genericJob,
+    company_name: company,
+    location: isRemote ? "Remote" : workdayLocation ?? genericJob.location,
+    is_remote: isRemote,
+    confidence: bestConfidence(genericJob.confidence, company && workdayLocation ? "high" : "medium"),
+  });
+}
+
+function applyGenericPageCorrections(job: ParsedJobData, html: string, finalUrl: string): ParsedJobData {
+  const meta = getMetaMap(html);
+  const title =
+    meta.get("og:title") ??
+    meta.get("twitter:title") ??
+    extractTitleTag(html) ??
+    "";
+  const description =
+    meta.get("og:description") ??
+    meta.get("twitter:description") ??
+    meta.get("description") ??
+    "";
+  const location = job.location ?? extractLocationFromText(title) ?? extractLocationFromText(description);
+  const company =
+    job.company_name && !isKnownJobBoardCompany(job.company_name, finalUrl)
+      ? job.company_name
+      : extractEmployerFromDescription(description);
+  const jobTitle = stripLocationFromTitle(job.job_title, location);
 
   return normalizeParsedJob({
     ...job,
     company_name: company,
-    location: isRemote ? "Remote" : workdayLocation ?? job.location,
-    is_remote: isRemote,
-    confidence: bestConfidence(job.confidence, company && workdayLocation ? "high" : "medium"),
+    job_title: jobTitle,
+    location,
+    confidence: bestConfidence(job.confidence, company && jobTitle ? "medium" : "low"),
   });
+}
+
+function extractEmployerFromDescription(description: string): string | null {
+  const cleaned = normalizeText(description);
+  const patterns = [
+    /\bJoin (?:our|the) team and become a part of\s+([A-Z][A-Za-z0-9&.' -]+)\s+(?:community|team|organization|department)\b/i,
+    /\bJoin (?:our|the) team at\s+([A-Z][A-Za-z0-9&.' -]+?)(?:[.;]|$)/i,
+    /\bbecome a part of\s+([A-Z][A-Za-z0-9&.' -]+)\s+(?:community|team|organization|department)\b/i,
+    /\bApply for .+? (?:at|with)\s+([A-Z][A-Za-z0-9&.' -]+?)(?:[.;]|$)/i,
+    /\b([A-Z][A-Za-z0-9&.' -]+?)\s+is (?:seeking|hiring|looking for|accepting applications)\b/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = cleaned.match(pattern);
+    const company = cleanCompanyName(match?.[1] ?? null);
+    if (company && !isGenericCompanyPhrase(company)) return company;
+  }
+
+  return null;
+}
+
+function stripLocationFromTitle(title: string | null, location: string | null): string | null {
+  if (!title || !location) return title;
+
+  const escapedLocation = location.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const locationPattern = new RegExp(`\\s+in\\s+${escapedLocation}\\s*$`, "i");
+  const cleaned = title.replace(locationPattern, "").trim();
+  return cleanJobTitle(cleaned);
 }
 
 function isWorkdayUrl(url: string): boolean {
@@ -418,6 +479,44 @@ function extractCompanyFromWorkdayText(description: string, siteId: string | nul
 
 function isGenericCompanyPhrase(value: string): boolean {
   return /^(the opportunity|description|job responsibilities|minimum requirements|why join us)$/i.test(value);
+}
+
+function isKnownJobBoardCompany(value: string | null | undefined, url?: string): boolean {
+  const normalized = normalizeText(value ?? "")
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "");
+  if (!normalized) return false;
+
+  const knownNames = [
+    "governmentjobs",
+    "governmentjobscom",
+    "schooljobs",
+    "schooljobscom",
+    "neogov",
+    "linkedin",
+    "indeed",
+    "greenhouse",
+    "lever",
+    "workday",
+    "ashby",
+    "jobvite",
+    "smartrecruiters",
+    "recruitee",
+    "bamboohr",
+    "icims",
+  ];
+
+  if (knownNames.includes(normalized)) return true;
+
+  if (!url) return false;
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+    const hostRoot = host.split(".")[0]?.replace(/[^a-z0-9]+/g, "");
+    return Boolean(hostRoot && normalized === hostRoot && KNOWN_BOARD_SUFFIXES.some((suffix) => host.includes(suffix)));
+  } catch {
+    return false;
+  }
 }
 
 function extractWorkdayLocation(finalUrl: string, description: string, fallbackLocation: string | null): string | null {
@@ -756,6 +855,7 @@ function cleanCompanyName(value: string | null | undefined): string | null {
     .replace(/\s+[-|]\s+.*$/g, "")
     .trim();
 
+  if (isKnownJobBoardCompany(cleaned)) return null;
   return cleaned || null;
 }
 
@@ -774,7 +874,20 @@ function cleanLocation(value: string | null | undefined): string | null {
     .replace(/^[,|.\-\s]+|[,|.\-\s]+$/g, "")
     .trim();
 
-  return cleaned || null;
+  return formatLocationCasing(cleaned) || null;
+}
+
+function formatLocationCasing(value: string): string {
+  const stateMatch = value.match(/^([A-Z][A-Z .'-]+),\s*([A-Z]{2})(.*)$/);
+  if (!stateMatch) return value;
+
+  return `${toTitleCase(stateMatch[1])}, ${stateMatch[2]}${stateMatch[3] ?? ""}`.trim();
+}
+
+function toTitleCase(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\b[a-z]/g, (char) => char.toUpperCase());
 }
 
 function humanizeSlug(value: string | null | undefined): string | null {
