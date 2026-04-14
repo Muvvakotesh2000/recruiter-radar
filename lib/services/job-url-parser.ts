@@ -22,6 +22,7 @@ const FETCH_TIMEOUT_MS = 20_000;
 const MAX_HTML_CHARS = 1_500_000;
 
 const KNOWN_BOARD_SUFFIXES = [
+  "ats",
   "greenhouse",
   "lever",
   "workday",
@@ -39,6 +40,59 @@ const KNOWN_BOARD_SUFFIXES = [
   "careers",
   "jobs",
 ];
+
+const US_STATE_ABBREVIATIONS: Record<string, string> = {
+  alabama: "AL",
+  alaska: "AK",
+  arizona: "AZ",
+  arkansas: "AR",
+  california: "CA",
+  colorado: "CO",
+  connecticut: "CT",
+  delaware: "DE",
+  florida: "FL",
+  georgia: "GA",
+  hawaii: "HI",
+  idaho: "ID",
+  illinois: "IL",
+  indiana: "IN",
+  iowa: "IA",
+  kansas: "KS",
+  kentucky: "KY",
+  louisiana: "LA",
+  maine: "ME",
+  maryland: "MD",
+  massachusetts: "MA",
+  michigan: "MI",
+  minnesota: "MN",
+  mississippi: "MS",
+  missouri: "MO",
+  montana: "MT",
+  nebraska: "NE",
+  nevada: "NV",
+  "new hampshire": "NH",
+  "new jersey": "NJ",
+  "new mexico": "NM",
+  "new york": "NY",
+  "north carolina": "NC",
+  "north dakota": "ND",
+  ohio: "OH",
+  oklahoma: "OK",
+  oregon: "OR",
+  pennsylvania: "PA",
+  "rhode island": "RI",
+  "south carolina": "SC",
+  "south dakota": "SD",
+  tennessee: "TN",
+  texas: "TX",
+  utah: "UT",
+  vermont: "VT",
+  virginia: "VA",
+  washington: "WA",
+  "west virginia": "WV",
+  wisconsin: "WI",
+  wyoming: "WY",
+};
 
 export async function parseJobUrl(url: string): Promise<ParsedJobData> {
   const fromUrl = extractFromUrlPattern(url);
@@ -527,6 +581,7 @@ function applyBoardSpecificCorrections(job: ParsedJobData, html: string, finalUr
   const isRemote = !isHybridOrOffice && isRemoteText(`${genericJob.is_remote ? "remote" : ""} ${genericJob.location ?? ""}`);
   const company =
     extractCompanyFromWorkdayText(description, workdayContext.siteId) ??
+    extractCompanyFromWorkdayHost(finalUrl) ??
     cleanCompanyName(workdayContext.tenant) ??
     genericJob.company_name;
 
@@ -562,6 +617,7 @@ function finaliseParsedJob(
     ...candidates.map((candidate) => candidate.company_name),
     extractEmployerFromDescription(description),
     extractCompanyFromVisibleHtml(html),
+    extractFromUrlPattern(finalUrl).company_name,
     extractCompanyFromOwnedJobHost(finalUrl),
   ], finalUrl);
   const location = chooseBestLocation([
@@ -759,6 +815,18 @@ function extractWorkdayContext(html: string): { tenant: string | null; siteId: s
   };
 }
 
+function extractCompanyFromWorkdayHost(url: string): string | null {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+    const tenant = host.match(/^([a-z0-9-]+)\.wd\d+\.myworkdayjobs\.com$/)?.[1];
+    if (!tenant) return null;
+
+    return cleanCompanyName(tenant);
+  } catch {
+    return null;
+  }
+}
+
 function readJsStringField(text: string, key: string): string | null {
   const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = new RegExp(`\\b${escapedKey}\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`).exec(text);
@@ -846,6 +914,7 @@ function isKnownJobBoardCompany(value: string | null | undefined, url?: string):
     "schooljobs",
     "schooljobscom",
     "neogov",
+    "ats",
     "linkedin",
     "indeed",
     "greenhouse",
@@ -868,6 +937,7 @@ function isKnownJobBoardCompany(value: string | null | undefined, url?: string):
 
     const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
     const hostRoot = host.split(".")[0]?.replace(/[^a-z0-9]+/g, "");
+    if (host.includes("myworkdayjobs.com") && hostRoot && normalized === hostRoot) return false;
     return Boolean(hostRoot && normalized === hostRoot && KNOWN_BOARD_SUFFIXES.some((suffix) => host.includes(suffix)));
   } catch {
     return false;
@@ -882,7 +952,7 @@ function extractCompanyFromOwnedJobHost(url: string): string | null {
 
     const root = parts[0];
     const second = parts[1];
-    const genericRoots = new Set(["jobs", "careers", "apply", "boards", "recruiting", "www"]);
+    const genericRoots = new Set(["ats", "jobs", "careers", "apply", "boards", "recruiting", "www"]);
     if (genericRoots.has(root)) return null;
 
     const companyOwned =
@@ -1245,7 +1315,7 @@ function extractCompanyFromHost(host: string): string | null {
 
   const first = parts[0];
   const second = parts[1];
-  if (["jobs", "careers", "boards", "apply", "recruiting"].includes(first)) {
+  if (["ats", "jobs", "careers", "boards", "apply", "recruiting"].includes(first)) {
     if (second === "employinc") return "Employ";
     return second;
   }
@@ -1292,12 +1362,15 @@ function normalizeParsedJob(job: ParsedJobData): ParsedJobData {
 
 function cleanCompanyName(value: string | null | undefined): string | null {
   const cleaned = normalizeText(value ?? "")
+    .replace(/^jobs?\s*at\s*/i, "")
+    .replace(/^jobs?at/i, "")
     .replace(/\b(career site|careers|career|jobs|job board|greenhouse|lever|workday|ashby|site)\b/gi, "")
     .replace(/\s+[-|]\s+.*$/g, "")
     .replace(/^[,|.\-\s]+|[,|.\-\s]+$/g, "")
     .trim();
 
   if (isKnownJobBoardCompany(cleaned)) return null;
+  if (/^hpe$/i.test(cleaned)) return "HPE";
   return cleaned || null;
 }
 
@@ -1312,6 +1385,7 @@ function cleanJobTitle(value: string | null | undefined): string | null {
 
 function cleanLocation(value: string | null | undefined): string | null {
   const cleaned = normalizeText(value ?? "")
+    .replace(/^(?:based|located)\s+in\s+/i, "")
     .replace(/\b(full[- ]time|part[- ]time|contract|internship|apply now)\b/gi, "")
     .replace(/^[,|.\-\s]+|[,|.\-\s]+$/g, "")
     .trim();
@@ -1327,7 +1401,25 @@ function normalizeStructuredLocation(value: string): string | null {
     return `${toTitleCase(countryStateCity[2])}, ${countryStateCity[1].toUpperCase()}`;
   }
 
+  const cityStateCountry = value.match(/^([A-Z][A-Za-z .'-]+?)[,\s]+([A-Za-z ]+?)(?:,\s*|\s+)(?:United States(?: of America)?|USA|US)$/i);
+  if (cityStateCountry) {
+    const state = normalizeUsState(cityStateCountry[2]);
+    if (state) return `${toTitleCase(cityStateCountry[1])}, ${state}`;
+  }
+
+  const cityFullState = value.match(/^([A-Z][A-Za-z .'-]+),\s*([A-Za-z ]+)$/i);
+  if (cityFullState) {
+    const state = normalizeUsState(cityFullState[2]);
+    if (state) return `${toTitleCase(cityFullState[1])}, ${state}`;
+  }
+
   return null;
+}
+
+function normalizeUsState(value: string): string | null {
+  const cleaned = normalizeText(value).toLowerCase();
+  if (/^[a-z]{2}$/i.test(cleaned)) return cleaned.toUpperCase();
+  return US_STATE_ABBREVIATIONS[cleaned] ?? null;
 }
 
 function formatLocationCasing(value: string): string {
