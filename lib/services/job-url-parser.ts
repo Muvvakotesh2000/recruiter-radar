@@ -54,7 +54,11 @@ export async function parseJobUrl(url: string): Promise<ParsedJobData> {
   ].filter(hasUsefulData);
 
   const bestCandidate = rankCandidates(candidates)[0] ?? EMPTY_JOB;
-  const merged = mergeWithUrlData(bestCandidate, extractFromUrlPattern(finalUrl), fromUrl);
+  const merged = applyBoardSpecificCorrections(
+    mergeWithUrlData(bestCandidate, extractFromUrlPattern(finalUrl), fromUrl),
+    html,
+    finalUrl,
+  );
 
   if (!hasUsefulData(merged)) {
     throw new Error("No job details found on the page");
@@ -206,8 +210,10 @@ function extractMetaCandidate(html: string): ParsedJobData {
 function extractFromJobPosting(item: UnknownRecord, source: ParsedJobData["source"]): ParsedJobData {
   const title = firstText(item.title, item.name);
   const company = extractOrganizationName(item.hiringOrganization);
-  const remote = isRemoteJobPosting(item);
-  const location = remote ? "Remote" : extractJobLocation(item.jobLocation);
+  const physicalLocation = extractJobLocation(item.jobLocation);
+  const description = firstText(item.description);
+  const remote = isRemoteJobPosting(item) && !(physicalLocation && isHybridOrOfficeText(description ?? ""));
+  const location = remote && !physicalLocation ? "Remote" : physicalLocation;
 
   return normalizeParsedJob({
     company_name: company,
@@ -332,6 +338,135 @@ function mergeWithUrlData(...items: ParsedJobData[]): ParsedJobData {
   );
 
   return normalizeParsedJob(merged);
+}
+
+function applyBoardSpecificCorrections(job: ParsedJobData, html: string, finalUrl: string): ParsedJobData {
+  if (!isWorkdayUrl(finalUrl)) return job;
+
+  const meta = getMetaMap(html);
+  const description =
+    meta.get("og:description") ??
+    meta.get("twitter:description") ??
+    meta.get("description") ??
+    "";
+  const workdayContext = extractWorkdayContext(html);
+  const workdayLocation = extractWorkdayLocation(finalUrl, description, job.location);
+  const isHybridOrOffice = isHybridOrOfficeText(`${description} ${workdayLocation ?? ""}`);
+  const isRemote = !isHybridOrOffice && isRemoteText(`${job.is_remote ? "remote" : ""} ${job.location ?? ""}`);
+  const company =
+    extractCompanyFromWorkdayText(description, workdayContext.siteId) ??
+    cleanCompanyName(workdayContext.tenant) ??
+    job.company_name;
+
+  return normalizeParsedJob({
+    ...job,
+    company_name: company,
+    location: isRemote ? "Remote" : workdayLocation ?? job.location,
+    is_remote: isRemote,
+    confidence: bestConfidence(job.confidence, company && workdayLocation ? "high" : "medium"),
+  });
+}
+
+function isWorkdayUrl(url: string): boolean {
+  try {
+    return new URL(url).hostname.toLowerCase().includes("myworkdayjobs.com");
+  } catch {
+    return false;
+  }
+}
+
+function extractWorkdayContext(html: string): { tenant: string | null; siteId: string | null } {
+  return {
+    tenant: readJsStringField(html, "tenant"),
+    siteId: readJsStringField(html, "siteId"),
+  };
+}
+
+function readJsStringField(text: string, key: string): string | null {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(`\\b${escapedKey}\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`).exec(text);
+  if (!match) return null;
+
+  try {
+    return normalizeText(JSON.parse(`"${match[1]}"`));
+  } catch {
+    return normalizeText(unescapeJsString(match[1]));
+  }
+}
+
+function extractCompanyFromWorkdayText(description: string, siteId: string | null): string | null {
+  const cleaned = normalizeText(description);
+  const patterns = [
+    /\b(?:at|At)\s+([A-Z][A-Za-z0-9&.' -]+?),\s+(?:our|you|we|the|a career|you'll|you will)\b/,
+    /\bA career at\s+([A-Z][A-Za-z0-9&.' -]+?)\s+means\b/i,
+    /\bAs a wholly owned subsidiary of\s+([A-Z][A-Za-z0-9&.' -]+?),\s+([A-Z][A-Za-z0-9&.' -]+?)\s+(?:continues|is|has|focuses)\b/i,
+    /\b([A-Z][A-Za-z0-9&.' -]+?)\s+is an Equal Employment Opportunity employer\b/,
+    /\b([A-Z][A-Za-z0-9&.' -]+?)\s+has a strong history\b/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = cleaned.match(pattern);
+    const value = cleanCompanyName(match?.[2] ?? match?.[1] ?? null);
+    if (value && !isGenericCompanyPhrase(value)) return value;
+  }
+
+  const fromSiteId = siteId
+    ?.replace(/careers?/gi, "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2");
+  return cleanCompanyName(fromSiteId);
+}
+
+function isGenericCompanyPhrase(value: string): boolean {
+  return /^(the opportunity|description|job responsibilities|minimum requirements|why join us)$/i.test(value);
+}
+
+function extractWorkdayLocation(finalUrl: string, description: string, fallbackLocation: string | null): string | null {
+  const fromPath = extractLocationFromWorkdayPath(finalUrl);
+  if (fromPath) return fromPath;
+
+  const fromDescription =
+    extractOfficeLocationFromText(description) ??
+    extractLocationFromText(description);
+  if (fromDescription) return fromDescription;
+
+  return fallbackLocation && !isRemoteText(fallbackLocation) ? fallbackLocation : null;
+}
+
+function extractLocationFromWorkdayPath(url: string): string | null {
+  try {
+    const path = decodeURIComponent(new URL(url).pathname);
+    const jobIndex = path.split("/").findIndex((segment) => segment.toLowerCase() === "job");
+    const segment = jobIndex >= 0 ? path.split("/")[jobIndex + 1] : null;
+    if (!segment || !/[A-Za-z]/.test(segment) || !segment.includes("-")) return null;
+
+    const cleaned = segment
+      .replace(/-\d+.*$/g, "")
+      .replace(/_/g, "-");
+    const cityState = cleaned.match(/^([A-Za-z][A-Za-z.-]+(?:-[A-Za-z][A-Za-z.-]+)*)-([A-Z]{2})$/);
+    if (cityState) {
+      return cleanLocation(`${humanizeSlug(cityState[1])}, ${cityState[2]}`);
+    }
+
+    return cleanLocation(humanizeSlug(cleaned));
+  } catch {
+    return null;
+  }
+}
+
+function extractOfficeLocationFromText(text: string): string | null {
+  const cleaned = normalizeText(text);
+  const patterns = [
+    /\bbased out of (?:our|the)\s+(?:downtown\s+)?([A-Z][A-Za-z .'-]+)\s+office\b/i,
+    /\bin (?:our|the)\s+(?:downtown\s+)?([A-Z][A-Za-z .'-]+)\s+office\b/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = cleaned.match(pattern);
+    const location = cleanLocation(match?.[1] ?? null);
+    if (location) return location;
+  }
+
+  return null;
 }
 
 function rankCandidates(candidates: ParsedJobData[]): ParsedJobData[] {
@@ -570,6 +705,10 @@ function isRemoteJobPosting(item: UnknownRecord): boolean {
 
 function isRemoteText(text: string): boolean {
   return /\b(remote|telecommute|work from home|work-from-home|anywhere)\b/i.test(text);
+}
+
+function isHybridOrOfficeText(text: string): boolean {
+  return /\b(hybrid|on[- ]?site|onsite|in[- ]office|in office|based out of|office)\b/i.test(text);
 }
 
 function extractCompanyFromHost(host: string): string | null {
