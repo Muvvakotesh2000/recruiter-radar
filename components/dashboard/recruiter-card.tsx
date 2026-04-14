@@ -192,12 +192,14 @@ export function RecruiterCard({ lead, index, companyDomain }: RecruiterCardProps
                 {lead.confidence_level}
               </span>
             </div>
-            <div className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-md border border-border/50 bg-secondary/40 px-2 py-1">
-              <MapPin className="w-3.5 h-3.5 text-brand-300 flex-shrink-0" />
-              <span className="text-xs text-foreground/80 truncate">
-                {displayLocation ?? "Location unavailable"}
-              </span>
-            </div>
+            {displayLocation && (
+              <div className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-md border border-border/50 bg-secondary/40 px-2 py-1">
+                <MapPin className="w-3.5 h-3.5 text-brand-300 flex-shrink-0" />
+                <span className="text-xs text-foreground/80 truncate">
+                  {displayLocation}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
