@@ -137,6 +137,11 @@ export async function parseJobUrl(url: string): Promise<ParsedJobData> {
 
   if (!fetched) {
     if (hasUsefulData(fromUrl)) return fromUrl;
+    if (isIndeedUrl(url)) {
+      throw new Error(
+        "Indeed blocked this job page behind verification. Please paste the original employer job URL when available.",
+      );
+    }
     throw new Error("Unable to read job page");
   }
 
@@ -202,7 +207,14 @@ async function fetchJobHtml(url: string): Promise<{ html: string; finalUrl: stri
 function getReadableJobPageUrl(url: string): string {
   try {
     const parsedUrl = new URL(url);
-    if (parsedUrl.hostname.toLowerCase().includes("lever.co")) {
+    const host = parsedUrl.hostname.toLowerCase();
+
+    if (host.includes("indeed.com") && parsedUrl.pathname.toLowerCase() === "/applystart") {
+      const jobKey = parsedUrl.searchParams.get("jk");
+      if (jobKey) return `https://www.indeed.com/viewjob?jk=${encodeURIComponent(jobKey)}`;
+    }
+
+    if (host.includes("lever.co")) {
       parsedUrl.pathname = parsedUrl.pathname.replace(/\/apply\/?$/i, "");
       parsedUrl.search = "";
       parsedUrl.hash = "";
@@ -239,7 +251,7 @@ async function fetchReaderJobPage(url: string): Promise<{ html: string; finalUrl
 }
 
 function isBotChallengePage(html: string): boolean {
-  return /\b(Just a moment|Enable JavaScript and cookies|cf_chl_|challenge-platform|checking your browser)\b/i.test(html);
+  return /\b(Just a moment|Additional Verification Required|Enable JavaScript and cookies|cf_chl_|challenge-platform|checking your browser|Cloudflare Errors)\b/i.test(html);
 }
 
 function extractJsonLdCandidates(html: string): ParsedJobData[] {
@@ -869,6 +881,14 @@ function stripLocationFromTitle(title: string | null, location: string | null): 
 function isWorkdayUrl(url: string): boolean {
   try {
     return new URL(url).hostname.toLowerCase().includes("myworkdayjobs.com");
+  } catch {
+    return false;
+  }
+}
+
+function isIndeedUrl(url: string): boolean {
+  try {
+    return new URL(url).hostname.toLowerCase().includes("indeed.com");
   } catch {
     return false;
   }
