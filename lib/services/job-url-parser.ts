@@ -94,6 +94,43 @@ const US_STATE_ABBREVIATIONS: Record<string, string> = {
   wyoming: "WY",
 };
 
+const NON_LOCATION_CITY_WORDS = new Set([
+  "agile",
+  "android",
+  "angular",
+  "api",
+  "aws",
+  "azure",
+  "backend",
+  "cloud",
+  "css",
+  "devops",
+  "docker",
+  "frontend",
+  "gcp",
+  "git",
+  "golang",
+  "graphql",
+  "html",
+  "java",
+  "javascript",
+  "jquery",
+  "json",
+  "kotlin",
+  "kubernetes",
+  "linux",
+  "node",
+  "nodejs",
+  "python",
+  "react",
+  "ruby",
+  "scala",
+  "sql",
+  "swift",
+  "typescript",
+  "vue",
+]);
+
 export async function parseJobUrl(url: string): Promise<ParsedJobData> {
   const fromUrl = extractFromUrlPattern(url);
   const fetched = await fetchJobHtml(url);
@@ -919,12 +956,21 @@ function isSuspiciousLocation(value: string): boolean {
   return (
     value.length < 3 ||
     value.length > 80 ||
+    looksLikeSkillStatePair(value) ||
     /\b(salary|compensation|benefits|apply|posted|category|department|description|responsibilities)\b/i.test(value) ||
     /\b(input|textarea|select|application-question|location-input|eeo-survey)\b/i.test(value) ||
     /[{}<>;]/.test(value) ||
     /(?:^|,)\s*\.[a-z][\w-]*/i.test(value) ||
     /\d{4,}/.test(value)
   );
+}
+
+function looksLikeSkillStatePair(value: string): boolean {
+  const match = value.match(/^([A-Za-z+#. ]+),\s*([A-Z]{2})$/);
+  if (!match) return false;
+
+  const city = match[1].toLowerCase().replace(/[^a-z0-9+#.]/g, "");
+  return NON_LOCATION_CITY_WORDS.has(city);
 }
 
 function normForCompare(value: string): string {
@@ -1416,6 +1462,7 @@ function cleanJobTitle(value: string | null | undefined): string | null {
 function cleanLocation(value: string | null | undefined): string | null {
   const cleaned = normalizeText(value ?? "")
     .replace(/^(?:based|located)\s+in\s+/i, "")
+    .replace(/,\s*(?:US|USA|United States)(?:\s*,\s*(?:US|USA|United States))+$/i, ", US")
     .replace(/\b(full[- ]time|part[- ]time|contract|internship|apply now)\b/gi, "")
     .replace(/^[,|.\-\s]+|[,|.\-\s]+$/g, "")
     .trim();
@@ -1426,6 +1473,11 @@ function cleanLocation(value: string | null | undefined): string | null {
 }
 
 function normalizeStructuredLocation(value: string): string | null {
+  const cityStateCountryCompact = value.match(/^([A-Z][A-Za-z .'-]+),\s*([A-Z]{2}),\s*(?:US|USA|United States)$/i);
+  if (cityStateCountryCompact) {
+    return `${toTitleCase(cityStateCountryCompact[1])}, ${cityStateCountryCompact[2].toUpperCase()}`;
+  }
+
   const countryStateCity = value.match(/^(?:USA|US|United States),\s*([A-Z]{2}),\s*([A-Z][A-Za-z .'-]+)$/i);
   if (countryStateCity) {
     return `${toTitleCase(countryStateCity[2])}, ${countryStateCity[1].toUpperCase()}`;
